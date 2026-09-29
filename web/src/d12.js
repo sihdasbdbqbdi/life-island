@@ -23,6 +23,11 @@ export const D12_FACES=faces;
 export function qMultiply(a,b){return [a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];}
 export function qAxis(axis,angle){const s=Math.sin(angle/2);return [...scale(axis,s),Math.cos(angle/2)];}
 export function rotate(q,v){const u=q.slice(0,3),s=q[3];return add(add(scale(u,2*dot(u,v)),scale(v,s*s-dot(u,u))),scale(cross(u,v),2*s));}
-export function faceOrientation(value){const f=faces[value-1]||faces[0],z=[0,0,1],axis=cross(f.normal,z);let q;if(Math.hypot(...axis)<1e-6)q=f.normal[2]>0?[0,0,0,1]:qAxis([1,0,0],Math.PI);else q=qAxis(norm(axis),Math.acos(Math.min(1,Math.max(-1,dot(f.normal,z)))));const u=rotate(q,f.u);return qMultiply(qAxis(z,-Math.atan2(u[1],u[0])-.09),q);}
+export function faceOrientation(value,sides=12){const list=diceFaces(sides),f=list[value-1]||list[0],z=[0,0,1],axis=cross(f.normal,z);let q;if(Math.hypot(...axis)<1e-6)q=f.normal[2]>0?[0,0,0,1]:qAxis([1,0,0],Math.PI);else q=qAxis(norm(axis),Math.acos(Math.min(1,Math.max(-1,dot(f.normal,z)))));const u=rotate(q,f.u);return qMultiply(qAxis(z,-Math.atan2(u[1],u[0])-.09),q);}
 export function qSlerp(a,b,t){let cos=dot(a,b);if(cos<0){b=scale(b,-1);cos=-cos;}if(cos>.9995)return norm(add(scale(a,1-t),scale(b,t)));const theta=Math.acos(Math.min(1,cos));return add(scale(a,Math.sin((1-t)*theta)/Math.sin(theta)),scale(b,Math.sin(t*theta)/Math.sin(theta)));}
-export const ROLL_MS=1150;
+export const ROLL_MS=1800;
+// 六面立方体与二十四面四角化立方体，共用真实面朝向计算。
+function polyFace(points,value){const center=scale(points.reduce(add,[0,0,0]),1/points.length);let normal=norm(cross(sub(points[1],points[0]),sub(points[2],points[0])));if(dot(normal,center)<0)normal=scale(normal,-1);const u=norm(sub(points[0],center)),v=scale(cross(normal,u),-1);return {vertices:points,center,normal,u,v,value};}
+const cube=[];for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){const other=[0,1,2].filter(i=>i!==axis);const points=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>{const v=[0,0,0];v[axis]=sign;v[other[0]]=a;v[other[1]]=b;return v;});cube.push(polyFace(points,cube.length+1));}
+const twentyFour=[];for(const f of cube){const tip=scale(f.normal,1.6);for(let i=0;i<4;i++)twentyFour.push(polyFace([f.vertices[i],f.vertices[(i+1)%4],tip],twentyFour.length+1));}
+export const diceFaces=sides=>sides===6?cube:sides===24?twentyFour:D12_FACES;

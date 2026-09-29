@@ -314,3 +314,12 @@ test('跨多圈每次经过起点各自有到账时刻',()=>{
  assert.equal(p.cash,410);
  assert.deepEqual(s.moneyEvents.filter(e=>e.atStep).map(e=>e.atStep),[1,19]);
 });
+
+test('6、12、24面骰各自限制点数，旧存档默认12面',()=>{
+ for(const sides of [6,12,24]){const s=game();s.rules.diceSides=sides;assert.throws(()=>E.roll(E.clone(s),sides+1));E.roll(s,sides);assert.equal(s.result.die,sides);assert.equal(E.validateSave(s).rules.diceSides,sides);}
+ const old=game();delete old.rules.diceSides;assert.equal(E.validateSave(old).rules.diceSides,12);
+ const bad=game();bad.rules.diceSides=20;assert.throws(()=>E.validateSave(bad));
+});
+test('三种立体骰子面数与朝向对应正确',async()=>{
+ const {diceFaces,faceOrientation,rotate}=await import('./d12.js');for(const sides of [6,12,24]){const faces=diceFaces(sides);assert.equal(faces.length,sides);for(const f of faces){const n=rotate(faceOrientation(f.value,sides),f.normal);assert(Math.abs(n[2]-1)<.00001);}}
+});

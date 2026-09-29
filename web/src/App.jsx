@@ -48,7 +48,7 @@ function load() {
 function Token({ p, small = false }) {
   return (
     <span className={`token ${small ? "small" : ""}`} style={{background:playerColor(p),color:"#0a0b0e"}} title={p.name}>
-      {p.name.slice(0, 1)}
+      <span>{Array.from(p.name)[0]}</span>
     </span>
   );
 }
@@ -76,10 +76,11 @@ export default function App() {
   const [reduced,setReduced]=useState(()=>matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [sound,setSound]=useState(()=>{try{return localStorage.getItem("life-island-sound")!=="off";}catch{return true;}});
   const [detailedLog,setDetailedLog]=useState(false);
+  const [rename,setRename]=useState(null),[renameText,setRenameText]=useState("");
   const [sorting,setSorting]=useState(false);
-  const [moneyFlight,setMoneyFlight]=useState(null);const walletRows=useRef({});
+  const [moneyFlight,setMoneyFlight]=useState([]);const walletRows=useRef({});
   useEffect(()=>{if(!sorting)return;const t=setTimeout(()=>setSorting(false),reduced?100:1100);return()=>clearTimeout(t);},[sorting,reduced]);
-  const tileRefs=useRef([]),alive=useRef(true);
+  const tileRefs=useRef([]),movingRef=useRef(null),alive=useRef(true);
   const s = presentation || env.state;
   const [tab, setTab] = useState("map"),
     [drawer, setDrawer] = useState(""),
@@ -175,7 +176,7 @@ export default function App() {
       const source=e.sourceId?walletRows.current[e.sourceId]:tileRefs.current[e.tile];const rect=source?.getBoundingClientRect();
       return {...e,key:crypto.randomUUID(),from:rect?{x:rect.left+rect.width/2,y:rect.top+rect.height/2}:{x:innerWidth/2,y:innerHeight/2}};
     });
-    if(groups.length)setMoneyFlight({id:crypto.randomUUID(),groups});
+    if(groups.length)setMoneyFlight(previous=>[...previous,{id:crypto.randomUUID(),groups}]);
   }
   async function animateAction(fn, rollValue=null) {
     if(busyRef.current||remote)return false;
@@ -197,22 +198,26 @@ export default function App() {
       if(!alive.current)return;
       setStage("moving");
       const t=E.player(visual,path.playerId);if(!t)continue;
+      let previousPoint;
       const setPosition=(pos,step)=>{
         const tile=tileRefs.current[pos];
-        setMotion({playerId:path.playerId,pos,step,x:tile?tile.offsetLeft+tile.offsetWidth/2:0,y:tile?tile.offsetTop+tile.offsetHeight*.78:0});
+        const point={x:tile?tile.offsetLeft+tile.offsetWidth/2:0,y:tile?tile.offsetTop+tile.offsetHeight*.78:0};
+        if(step===0||!movingRef.current)setMotion({playerId:path.playerId,pos,step,...point});
+        else {const node=movingRef.current;const transform=q=>`translate(${q.x}px,${q.y}px)`;node.style.transform=transform(point);if(!reduced){node.animate([{transform:transform(previousPoint)},{transform:transform(point)}],{duration:140,easing:'linear'});node.querySelector('.pawn-hop').animate([{transform:'translateY(0) scale(1)'},{transform:'translateY(-9px) scale(1.07,.96)',offset:.45},{transform:'translateY(0) scale(1)'}],{duration:140});}}
+        previousPoint=point;
       };
       setPosition(path.from,0);
-      if(!reduced)await delay(35);
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       for(let step=1;step<=Math.abs(path.steps);step++){
         if(!alive.current)return;
         const pos=((path.from+Math.sign(path.steps)*step)%E.BOARD.length+E.BOARD.length)%E.BOARD.length;
-        t.pos=pos;setPresentation(E.clone(visual));setPosition(pos,step);
+        t.pos=pos;setPosition(pos,step);
         if(sound&&!reduced)playStepSound();
         if(!reduced&&tileRefs.current[pos])tileRefs.current[pos].animate([{transform:'scale(1)'},{transform:'translateY(6px) scale(1.08,.88)',offset:.3},{transform:'translateY(-3px) scale(.97,1.06)',offset:.7},{transform:'none'}],{duration:340});
         const passing=moneyEvents.filter(e=>e.atPath===pathIndex&&e.atStep===step);
-        if(passing.length){for(const e of passing)E.player(visual,e.playerId).cash+=e.amount;setPresentation(E.clone(visual));await audioReady;flyMoney(passing);if(!reduced)await delay(1500);}
+        if(passing.length){for(const e of passing)E.player(visual,e.playerId).cash+=e.amount;setPresentation(E.clone(visual));await audioReady;flyMoney(passing);}
         if(step===Math.abs(path.steps)&&tileRefs.current[pos])tileRefs.current[pos].animate([{background:'#ffbf1f',color:'#0a0b0e',transform:reduced?'none':'scale(1.08)'},{background:'#ffbf1f',color:'#0a0b0e',offset:.65},{transform:'none'}],{duration:950});
-        if(!reduced)await delay(185);
+        if(!reduced)await delay(140);
       }
     }
     if(!alive.current)return;
@@ -231,7 +236,7 @@ export default function App() {
     const state=ref.current.state,active=E.current(state);
     if(busyRef.current||!active||active.points<state.rules.cost||state.pending.length)return;
     const special=active.effects.some(e=>e.key==="skip"||e.key==="giveRoll");
-    const final=E.integer(1,E.DICE_SIDES);
+    const final=E.integer(1,state.rules.diceSides||12);
     void animateAction(d=>{if(d.acted)E.next(d);E.roll(d,final);},special?null:final);
   }
   function download(data, filename) {
@@ -286,7 +291,7 @@ export default function App() {
   const nextPlayer=E.player(s,s.queue.find(id=>id!==p?.id&&!s.held.includes(id)&&(E.needsScore(s,id)||E.player(s,id)?.points>=s.rules.cost)));
   const flowPanel=<section className="flow-panel" aria-label="出场顺序与当前玩家">
     <div className="heading-inline"><h3>{p?"当前玩家":s.phase==="between"?"本轮完成":"出场顺序"}</h3><span className="phase-tag">{stage==="rolling"?"掷骰中":stage==="moving"?"移动中":pending?"待结算":p&&E.needsScore(s)?"待录入":p?remaining?"进行中":"已用完":""}</span></div>
-    {p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p>剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="flow-steps"><span className={!s.acted||stage==="rolling"?"on":""}>掷骰</span><Icon name="icon-right" size={12}/><span className={stage==="moving"?"on":""}>移动</span><Icon name="icon-right" size={12}/><span className={s.acted&&!busy?"on":""}>结算</span></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本轮最后一位</strong>}</div></>:<p className="muted">{s.phase==="between"?"余分已保留":"每轮随机排序"}</p>}
+    {p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本轮最后一位</strong>}</div></>:<p className="muted">{s.phase==="between"?"余分已保留":"每轮随机排序"}</p>}
     <div className="order-list">{(s.order.length?s.order:s.players.map(t=>t.id)).map((id,i)=>{const t=E.player(s,id);if(!t)return null;const done=s.round>0&&!E.needsScore(s,id)&&t.points<s.rules.cost&&t.id!==p?.id;return <div key={id} className={`order-chip ${id===p?.id?"selected":""} ${done?"done":""}`}><span className="order-index">{i+1}</span><Token p={t} small/><span style={{color:playerColor(t)}}>{t.name}</span><small>{id===p?.id?"当前":done?"完成":E.needsScore(s,id)?"待录入":`${Math.floor(t.points/s.rules.cost)}次`}</small></div>;})}</div>
   </section>;
   const activityPanel=<section className="activity-panel"><div className="heading-inline"><h3>动态</h3><Button type="text" size="small" onClick={()=>setDrawer("log")}>全部</Button></div><div className="activity-list" aria-live="polite">{activity.slice(0,3).map(l=><p className="activity" key={l.id}><ColoredText text={l.text} players={s.players}/></p>)}{!activity.length&&<p className="muted">暂无动态</p>}</div></section>;
@@ -402,9 +407,9 @@ export default function App() {
                         : "本轮结束"}
                   </h2>
                 </div>
-                <div className="round-pill">
+                <div className="round-tools"><button className="dice-selector" disabled={blocked||s.phase==="playing"} title={s.phase==="playing"?"下轮开始前可切换":"切换骰子"} onClick={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})}>{s.rules.diceSides||12} 面骰 ↻</button><div className="round-pill">
                   {s.round ? `第 ${s.round} 轮` : "待开始"}
-                </div>
+                </div></div>
               </div>
               <div className="board">
                 <div className="board-center">
@@ -418,7 +423,8 @@ export default function App() {
                     </strong>
                     <button className="dice-hitbox" aria-label="掷骰子" disabled={blocked||s.phase!=="playing"||E.needsScore(s)||!!pending||remaining<1} onClick={throwDice}><span className="dice-wrap">
                       <Dice
-                        value={busy ? die : s.result?.die || 12}
+                        sides={s.rules.diceSides||12}
+                        value={Math.min(s.rules.diceSides||12,busy ? die : s.result?.die || (s.rules.diceSides||12))}
                         rolling={stage === "rolling"}
                         reduced={reduced}
                       />
@@ -449,7 +455,7 @@ export default function App() {
                       </>
                     ) : (
                       <>
-                        <p className="center-copy">{stage==="rolling"?"12 面骰":stage==="moving"?"前进中…":s.acted?(s.result?.skipped?s.result.description||"暂停一次":`前进 ${s.result?.steps} 格`):"12 面骰"}</p>
+                        <p className="center-copy">{stage==="rolling"?`${s.rules.diceSides||12} 面骰`:stage==="moving"?"前进中…":s.acted?(s.result?.skipped?s.result.description||"暂停一次":`前进 ${s.result?.steps} 格`):`${s.rules.diceSides||12} 面骰`}</p>
                         {busy?<p className="dice-hint">{stage==="rolling"?"掷骰中…":"移动中…"}</p>:pending?<Button type="primary" size="large" onClick={()=>setCardOpen(true)}>结算烧烧卡</Button>:remaining>0?<p className="dice-hint">{s.acted?"点击骰子 · 再掷一次":"点击骰子"}</p>:<Button type="primary" size="large" disabled={blocked} onClick={()=>animateAction(E.next)}>{nextPlayer?"下一位":"本轮结算"}</Button>}
 
                       </>
@@ -507,7 +513,7 @@ export default function App() {
                     </div>
                   );
                 })}
-                {motion&&<div className="moving-pawn" data-step={motion.step} style={{transform:`translate(${motion.x}px, ${motion.y}px)`}}><div key={motion.step} className="pawn-step"><div className="pawn-hop"><Token p={E.player(s,motion.playerId)}/></div></div></div>}
+                {motion&&<div ref={movingRef} className="moving-pawn" data-step={motion.step} style={{transform:`translate(${motion.x}px, ${motion.y}px)`}}><div key={motion.step} className="pawn-step"><div className="pawn-hop"><Token p={E.player(s,motion.playerId)}/></div></div></div>}
               </div>
             </section>{activityPanel}</div>
             <aside className="sidebar">{flowPanel}
@@ -535,7 +541,7 @@ export default function App() {
                         <RankMedal rank={ranks.findIndex(x=>x.cash===t.cash)+1}/>
                         <Token p={t} small />
                         <div className="rank-player">
-                          <strong style={{color:playerColor(t)}}>{t.name}</strong>
+                          <button className="rename-player" disabled={blocked} style={{color:playerColor(t)}} aria-label={`修改${t.name}的名字`} onClick={()=>{setRename(t.id);setRenameText(t.name);}}>{t.name}</button>
                           <small>
                             {t.points} 积分
                             {t.effects.length
@@ -543,7 +549,7 @@ export default function App() {
                               : ""}
                           </small>
                         </div>
-                        <WalletAmount value={t.cash} reduced={reduced} arrivalDelay={moneyFlight?.groups.some(g=>g.playerId===t.id)?810:0}/>
+                        <WalletAmount value={t.cash} reduced={reduced} arrivalDelay={moneyFlight.some(batch=>batch.groups.some(g=>g.playerId===t.id))?810:0}/>
                       </div>
                     ))}
                   </div>
@@ -674,6 +680,7 @@ export default function App() {
         </section>
       )}
 
+      <Modal open={!!rename} title="修改名字" typewriter={false} onClose={()=>setRename(null)} footer={<Button type="primary" disabled={!renameText.trim()||blocked} onClick={()=>{if(commit(d=>{const text=renameText.trim();if(text.length>16)throw Error("名字最多16个字");if(d.players.some(t=>t.id!==rename&&t.name===text))throw Error("名字已存在");E.player(d,rename).name=text;}))setRename(null);}}>保存</Button>}><Input aria-label="新名字" maxLength={16} value={renameText} onChange={e=>setRenameText(e.target.value)}/></Modal>
       <Modal open={drawer==="add"} title="添加玩家" typewriter={false} onClose={()=>setDrawer("")} footer={<Button type="primary" disabled={blocked||!name.trim()} onClick={()=>{if(add())setDrawer("");}}>添加</Button>}>
         <Input aria-label="玩家名字" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.nativeEvent.isComposing&&add())setDrawer("");}} placeholder="名字，逗号分隔"/>
       </Modal>
@@ -821,7 +828,7 @@ export default function App() {
       >
         <p>{confirm?.body}</p>
       </Modal>
-      <MoneyFlights batch={moneyFlight} rows={walletRows} reduced={reduced} sound={sound} onDone={()=>setMoneyFlight(null)}/>
+      {moneyFlight.map(batch=><MoneyFlights key={batch.id} batch={batch} rows={walletRows} reduced={reduced} sound={sound} onDone={()=>setMoneyFlight(all=>all.filter(b=>b.id!==batch.id))}/>)}
       {s.settling&&!busy&&<RoundSettlement s={s} disabled={blocked} onConfirm={answers=>animateAction(d=>E.settleRound(d,answers))}/>}
       {(sorting || (s.phase==="playing" && p && E.needsScore(s) && !busy)) && <TurnOverlay key={`${s.round}-${p?.id}-${sorting}`} player={p} players={s.order.map(id=>E.player(s,id))} sorting={sorting} carry={p?.points||0} disabled={remote} onConfirm={value=>commit(d=>E.enterScore(d,value))}/>}
       {notice && (
@@ -882,6 +889,7 @@ function PlayerManager({ s, commit, setNotice, confirm, blocked }) {
               setPos(null);
             }}
           />
+          <Button size="small" onClick={()=>{setId(E.shuffle(s.players)[0].id);setPos(null);}}>随机选择</Button>
           {p && (
             <>
               <div className="two-fields">
@@ -1212,13 +1220,13 @@ function CardResolver({ pending, s, onResolve, onCancel }) {
         <Field
           label={c.kind === "duel" ? "猜拳对手（先随机选人）" : "选择玩家"}
         >
-          <CardSelect options={options} value={target} onChange={setTarget} />
-          {c.kind === "duel" && (
+          <CardSelect options={two?options.filter(t=>t.key!==target2):options} value={target} onChange={setTarget} />
+          {(one || two) && (
             <Button
               size="small"
-              onClick={() => setTarget(E.shuffle(others)[0]?.id || "")}
+              onClick={() => setTarget(E.shuffle(others.filter(t=>t.id!==target2))[0]?.id || "")}
             >
-              随机选一位对手
+              随机选择
             </Button>
           )}
         </Field>
@@ -1229,7 +1237,7 @@ function CardResolver({ pending, s, onResolve, onCancel }) {
             options={options.filter((t) => t.key !== target)}
             value={target2}
             onChange={setTarget2}
-          />
+          /><Button size="small" disabled={options.filter(t=>t.key!==target).length===0} onClick={()=>setTarget2(E.shuffle(options.filter(t=>t.key!==target))[0]?.key||"")}>随机选择</Button>
         </Field>
       )}
       {two && others.length < 2 && (
@@ -1315,7 +1323,7 @@ function Rules({ s }) {
       <ol>
         <li>添加玩家，每轮开始先随机排序。</li>
         <li>轮到玩家时输入本轮新增积分，余分自动累计；用完次数后再换人。</li>
-        <li>使用12面骰，每次消耗 {s.rules.cost} 分；不足一次的余分留到下一轮。</li>
+        <li>每轮开始前可切换6、12、24面骰，每次消耗 {s.rules.cost} 分；不足一次的余分留到下一轮。</li>
         <li>所有次数用完后结算，保存排名和位置；下一轮从当前位置继续。重来当前轮会恢复轮初状态并重新排序。</li>
       </ol>
       <h3>地图与资金</h3>

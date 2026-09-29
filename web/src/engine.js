@@ -72,7 +72,7 @@ export const fresh = () => ({
   settling: false,
   acted: false,
   result: null,
-  rules: { cost: 3, initialMoney: 0, passBonus: 200 },
+  rules: { cost: 3, initialMoney: 0, passBonus: 200, diceSides:12 },
   createdAt: new Date().toISOString(),
 });
 export const clone = (s) => structuredClone(s);
@@ -344,9 +344,9 @@ export function roll(s, forced) {
   for(const owner of s.players)for(const e of owner.effects){
     if((e.key==='mirror'&&e.targetId===p.id)|| (owner.id===p.id&&['halfTurns','bonusTurns'].includes(e.key))) e.activeAction=s.action;
   }
-  const die = forced ?? integer(1, DICE_SIDES);
-  if (!Number.isInteger(die) || die < 1 || die > DICE_SIDES)
-    throw Error("骰子点数应为1～12");
+  const die = forced ?? integer(1, s.rules.diceSides||12);
+  if (!Number.isInteger(die) || die < 1 || die > (s.rules.diceSides||12))
+    throw Error(`骰子点数应为1～${s.rules.diceSides||12}`);
   p.points -= s.rules.cost;
   const one = p.effects.find((e) => e.key === "rollOne");
   const steps = one ? 1 : die;
@@ -670,7 +670,7 @@ export function resolve(s, form = {}) {
       pay(20 - n * 20);
       break;
     case "parity": {
-      const die = integer(1, DICE_SIDES);
+      const die = integer(1, s.rules.diceSides||12);
       record(s, `${p.name} 卡牌额外掷骰：${die}点（不移动）`);
       pay(die % 2 === 0 ? 10 : -10);
       break;
@@ -877,7 +877,7 @@ export function validateSave(input) {
       !ids.has(s.result.playerId) ||
       !Number.isInteger(s.result.die) ||
       s.result.die < 0 ||
-      s.result.die > DICE_SIDES ||
+      s.result.die > 24 ||
       !Number.isInteger(s.result.steps))
   )
     throw Error("存档骰子结果损坏");
@@ -885,7 +885,9 @@ export function validateSave(input) {
     throw Error("存档缺少当前玩家");
   if (s.pending.length && s.phase !== "playing")
     throw Error("存档结算状态损坏");
+  if(s.rules.diceSides!==undefined&&![6,12,24].includes(s.rules.diceSides))throw Error("骰子面数无效");
   const normalized = clone(s);
+  normalized.rules.diceSides??=12;
   const colors = new Set();
   for (const p of normalized.players) {
     if (colors.has(p.color)) p.color = COLORS.find(c=>!colors.has(c));
