@@ -14,6 +14,7 @@ import {
 } from "animal-island-ui";
 import * as E from "./engine.js";
 import { CARDS, CARD_BY_ID } from "./cards.js";
+import Awards from "./Awards.jsx";
 import AvatarEditor from "./AvatarEditor.jsx";
 import CardDraw from "./CardDraw.jsx";
 import Dice from "./Dice.jsx";
@@ -84,6 +85,7 @@ export default function App() {
   const [sound,setSound]=useState(()=>{try{return localStorage.getItem("life-island-sound")!=="off";}catch{return true;}});
   const [detailedLog,setDetailedLog]=useState(false);
   const [rename,setRename]=useState(null);
+  const [awardsReview,setAwardsReview]=useState(false);
   const [dicePressed,setDicePressed]=useState(false),[throwPower,setThrowPower]=useState(0),[throwAngle,setThrowAngle]=useState(null);
   const aimDirection=useRef({x:0,y:0,startX:0,startY:0});
   const chargeStart=useRef(null),chargeStop=useRef(null),lastRelease=useRef(0);
@@ -319,8 +321,8 @@ export default function App() {
   const remaining=p&&!s.held.includes(p.id)?Math.floor(p.points/s.rules.cost):0;
   const nextPlayer=E.player(s,s.queue.find(id=>id!==p?.id&&!s.held.includes(id)&&(E.needsScore(s,id)||E.player(s,id)?.points>=s.rules.cost)));
   const flowPanel=<section className="flow-panel" aria-label="出场顺序与当前玩家">
-    <div className="heading-inline"><h3>{p?"当前玩家":s.phase==="between"?"本轮完成":"出场顺序"}</h3><span className="phase-tag">{stage==="rolling"?"掷骰中":stage==="moving"?"移动中":pending?"待结算":p&&E.needsScore(s)?"待录入":p?remaining?"进行中":"已用完":""}</span></div>
-    {p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本轮最后一位</strong>}</div></>:<p className="muted">{s.phase==="between"?"余分已保留":"每轮随机排序"}</p>}
+    <div className="heading-inline"><h3>{p?"当前玩家":s.phase==="finished"?"本局结束":s.phase==="between"?"本轮完成":"出场顺序"}</h3><span className="phase-tag">{stage==="rolling"?"掷骰中":stage==="moving"?"移动中":pending?"待结算":p&&E.needsScore(s)?"待录入":p?remaining?"进行中":"已用完":""}</span></div>
+    {p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本轮最后一位</strong>}</div></>:<p className="muted">{s.phase==="finished"?"成绩已保存":s.phase==="between"?"余分已保留":"每轮随机排序"}</p>}
     <div className="order-list">{(s.order.length?s.order:s.players.map(t=>t.id)).map((id,i)=>{const t=E.player(s,id);if(!t)return null;const done=s.round>0&&!E.needsScore(s,id)&&t.points<s.rules.cost&&t.id!==p?.id;return <div key={id} className={`order-chip ${id===p?.id?"selected":""} ${done?"done":""}`}><span className="order-index">{i+1}</span><Token p={t} small/><span style={{color:playerColor(t)}}>{t.name}</span><small>{id===p?.id?"当前":done?"完成":E.needsScore(s,id)?"待录入":`${Math.floor(t.points/s.rules.cost)}次`}</small></div>;})}</div>
   </section>;
   const activityPanel=<section className="activity-panel"><div className="heading-inline"><h3>动态</h3><Button type="text" size="small" onClick={()=>setDrawer("log")}>全部</Button></div><div className="activity-list" aria-live="polite">{activity.slice(0,3).map(l=><p className="activity" key={l.id}><ColoredText text={l.text} players={s.players}/></p>)}{!activity.length&&<p className="muted">暂无动态</p>}</div></section>;
@@ -337,13 +339,14 @@ export default function App() {
       >
         撤销
       </Button>
-      {s.roundCheckpoint && <Button size="small" disabled={blocked} onClick={()=>setConfirm({title:"重来当前轮？",body:"恢复本轮开始前的钱、积分和位置，重新排序。可以撤销。",action:()=>{if(commit(E.restartRound)){setSorting(true);setTab("map");setCardOpen(true);setDrawer("");}}})}>重来当前轮</Button>}
+      {s.roundCheckpoint && s.phase!=="finished" && <Button size="small" disabled={blocked} onClick={()=>setConfirm({title:"重来当前轮？",body:"恢复本轮开始前的钱、积分和位置，重新排序。可以撤销。",action:()=>{if(commit(E.restartRound)){setSorting(true);setTab("map");setCardOpen(true);setDrawer("");}}})}>重来当前轮</Button>}
+      <Button size="small" disabled={blocked} onClick={()=>setConfirm({title:"重新开始本局？",body:"清空本局的钱、积分、位置和轮次，保留玩家名字、头像和颜色。可以撤销。",action:()=>{if(commit(E.restartGame)){setAwardsReview(false);setSorting(false);setTab("map");setDrawer("");setCardOpen(false);}}})}>重新开始本局</Button>
       <Button size="small" disabled={blocked} onClick={() => setDrawer("save")}>
         存档
       </Button>
       <Button
         size="small"
-        disabled={blocked}
+        disabled={blocked||s.phase==="finished"}
         onClick={() => setDrawer("players")}
         icon={<Icon name="icon-design" size={18} />}
       >
@@ -433,7 +436,7 @@ export default function App() {
                       ? "人生地图"
                       : s.phase === "playing"
                         ? s.roundName
-                        : "本轮结束"}
+                        : s.phase==="finished"?"本局结束":"本轮结束"}
                   </h2>
                 </div>
                 <div className="round-tools"><button className="dice-selector" disabled={blocked||s.phase==="playing"} title={s.phase==="playing"?"下轮开始前可切换":"切换骰子"} onClick={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})}>{s.rules.diceSides||12} 面骰 ↻</button><div className="round-pill">
@@ -448,7 +451,7 @@ export default function App() {
                         ? p.name
                         : s.phase === "between"
                           ? "本轮结束"
-                          : "准备开局"}
+                          : s.phase==="finished"?"本局结束":"准备开局"}
                     </strong>
                     <button className="dice-hitbox" aria-label="掷骰子" disabled={blocked||s.phase!=="playing"||E.needsScore(s)||!!pending||remaining<1} onPointerDown={beginCharge} onPointerMove={moveCharge} onPointerUp={releaseCharge} onPointerCancel={cancelCharge} onLostPointerCapture={cancelCharge} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();cancelCharge();}else if(e.key===' '||e.key==='Enter'){e.preventDefault();if(!e.repeat)beginCharge(e);}}} onKeyUp={e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseCharge();}}} onBlur={cancelCharge} onContextMenu={e=>e.preventDefault()} onClick={e=>{if(e.detail===0&&Date.now()-lastRelease.current>400){setThrowPower(0);setThrowAngle(null);throwDice();}}}><span className="dice-wrap">
                       <Dice
@@ -476,6 +479,8 @@ export default function App() {
                             : "开始第一轮"}
                         </Button>
                       </>
+                    ) : s.phase === "finished" ? (
+                      <Button type="primary" onClick={()=>setAwardsReview(true)}>最终排名</Button>
                     ) : s.phase === "between" ? (
                       <>
                         <Button
@@ -557,7 +562,7 @@ export default function App() {
                   <div>
                     <h2>排行榜</h2>
                   </div>
-                  <button className="add-player-icon" aria-label="添加玩家" title={s.phase==="playing"?"本轮结束后添加玩家":"添加玩家"} disabled={blocked||s.phase==="playing"} onClick={()=>setDrawer("add")}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></button>
+                  <button className="add-player-icon" aria-label="添加玩家" title={s.phase==="playing"?"本轮结束后添加玩家":"添加玩家"} disabled={blocked||s.phase==="playing"||s.phase==="finished"} onClick={()=>setDrawer("add")}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></button>
                 </div>
                 {!ranks.length ? (
                   <div className="empty-rank">
@@ -863,6 +868,7 @@ export default function App() {
         <p>{confirm?.body}</p>
       </Modal>
       {moneyFlight.map(batch=><MoneyFlights key={batch.id} batch={batch} rows={walletRows} reduced={reduced} sound={sound} onDone={()=>setMoneyFlight(all=>all.filter(b=>b.id!==batch.id))}/>)}
+      {((s.phase==="between"&&s.awardsPending)||awardsReview)&&!busy&&!moneyFlight.length&&<Awards s={s} Pawn={Pawn} disabled={blocked} onDice={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})} onContinue={openRound} onFinish={()=>commit(E.finishGame)} onClose={()=>setAwardsReview(false)}/>}
       {s.settling&&!busy&&<RoundSettlement s={s} disabled={blocked} onConfirm={answers=>animateAction(d=>E.settleRound(d,answers))}/>}
       {(sorting || (s.phase==="playing" && p && E.needsScore(s) && !busy)) && <TurnOverlay key={`${s.round}-${p?.id}-${sorting}`} player={p} players={s.order.map(id=>E.player(s,id))} sorting={sorting} carry={p?.points||0} disabled={remote} onConfirm={value=>commit(d=>E.enterScore(d,value))}/>}
       {notice && (

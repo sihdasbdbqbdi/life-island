@@ -116,6 +116,7 @@ export function addPlayer(s, name) {
   if (s.players.some((p) => p.name === name))
     throw Error("这个名字已经在岛上了");
   if (s.players.length >= 20) throw Error("最多支持20位玩家");
+  if (s.phase === "finished") throw Error("本局已结束，请重新开局");
   if (s.phase === "playing") throw Error("请在轮次结束后添加玩家");
   const p = {
     id: crypto.randomUUID(),
@@ -258,14 +259,27 @@ export function enterScore(s, value) {
   if(s.held.includes(p.id)) next(s);
   return s;
 }
+export function restartGame(s) {
+ const players=clone(s.players),rules=clone(s.rules);
+ Object.keys(s).forEach(k=>delete s[k]);Object.assign(s,fresh(),{rules});
+ for(const old of players){addPlayer(s,old.name);Object.assign(s.players.at(-1),{id:old.id,color:old.color,avatar:old.avatar||"",cash:0,roundStart:0});}
+ s.log=[];return s;
+}
+export function finishGame(s){
+ if(s.phase!=="between"||s.pending.length||s.settling)throw Error("请先完成本轮结算");
+ s.phase="finished";s.awardsPending=false;return s;
+}
 export function restartRound(s) {
+  if(s.phase==="finished")throw Error("本局已结束，请重新开局");
   if(!s.roundCheckpoint) throw Error("此轮没有开始前的备份，可从下一轮使用重来");
   const saved = clone(s.roundCheckpoint), name = s.roundName;
   Object.keys(s).forEach(k => delete s[k]); Object.assign(s, saved);
   return startRound(s, undefined, name);
 }
 export function startRound(s, grants, name = "") {
+  if (s.phase === "finished") throw Error("本局已结束，请重新开局");
   if (s.phase === "playing") throw Error("请先完成当前轮");
+  s.awardsPending=false;
   if (s.players.length < 2) throw Error("至少需要两位玩家");
   const staged = grants === undefined;
   grants ??= {};
@@ -419,6 +433,7 @@ export function finishRound(s) {
     })),
   });
   s.phase = "between";
+  s.awardsPending=true;
   s.queue = [];
   s.acted = false;
   s.result = null;
@@ -760,7 +775,7 @@ export function validateSave(input) {
   if (
     !s ||
     s.version !== 1 ||
-    !["lobby", "playing", "between"].includes(s.phase) ||
+    !["lobby", "playing", "between", "finished"].includes(s.phase) ||
     !Array.isArray(s.players) ||
     s.players.length > 20
   )
