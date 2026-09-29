@@ -142,7 +142,7 @@ test("AI收入减半在下一轮过期", () => {
   E.finishRound(s);
   assert.equal(s.players[0].effects.length, 0);
 });
-test("本轮收入作废，既有收入扣回，之后的外部收入归零", () => {
+test("本轮已得收入扣回，之后仍能正常获得收入", () => {
   const s = game(),
     p = s.players[0];
   E.credit(s, p, 100, "奖励");
@@ -150,7 +150,8 @@ test("本轮收入作废，既有收入扣回，之后的外部收入归零", ()
   E.resolve(s);
   assert.equal(p.cash, 0);
   E.credit(s, p, 50, "奖励");
-  assert.equal(p.cash, 0);
+  assert.equal(p.cash, 50);
+  assert(!p.effects.some(e=>e.key==='voidIncome'));
   s.players.forEach(p=>p.points=0);
   E.finishRound(s);
   assert.equal(p.effects.length, 0);
@@ -322,4 +323,30 @@ test('6、12、24面骰各自限制点数，旧存档默认12面',()=>{
 });
 test('三种立体骰子面数与朝向对应正确',async()=>{
  const {diceFaces,faceOrientation,rotate}=await import('./d12.js');for(const sides of [6,12,24]){const faces=diceFaces(sides);assert.equal(faces.length,sides);for(const f of faces){const n=rotate(faceOrientation(f.value,sides),f.normal);assert(Math.abs(n[2]-1)<.00001);}}
+});
+test('旧存档的后续收入作废状态移除，收入可以继续获得',()=>{
+ const s=game(),p=s.players[0];p.effects.push({id:crypto.randomUUID(),key:'voidIncome',label:'本轮后续外部收入作废',createdAction:0,expiresRound:s.round});
+ const restored=E.validateSave(s),r=restored.players[0];assert(!r.effects.some(e=>e.key==='voidIncome'));E.credit(restored,r,70,'奖励');assert.equal(r.cash,70);
+});
+
+test('骰子整段旋转持续减速，末段不再补转且准确停在结果面',async()=>{
+ const {createRollOrientation}=await import('./dice-motion.js');const {faceOrientation,dot}=await import('./d12.js');
+ for(const power of [0,.5,1])for(const sides of [6,12,24])for(let value=1;value<=sides;value++){
+  const from=faceOrientation(value%sides+1,sides),target=faceOrientation(value,sides),at=createRollOrientation(from,target,power);
+  assert(Math.abs(dot(at(0),from))>1-1e-10);assert(Math.abs(dot(at(1),target))>1-1e-10);
+  let last=Infinity,previous=at(0);
+  for(let frame=1;frame<=120;frame++){const q=at(frame/120);const angular=2*Math.acos(Math.min(1,Math.abs(dot(previous,q))));assert(angular<=last+1e-7,`面数${sides}点数${value}末段发生加速`);last=angular;previous=q;}
+ }
+});
+test('骰子惯性路线在边界连续反射，多次碰撞后不会被拉回中心',async()=>{
+ const {reflectedPosition,rollEase,CHARGE_MS}=await import('./dice-motion.js');assert.equal(CHARGE_MS,1500);
+ assert.equal(reflectedPosition(0,120,100).position,80);assert.equal(reflectedPosition(0,-120,100).position,-80);
+ assert.equal(reflectedPosition(0,540,100).position,60);
+ for(let i=0;i<=1000;i++){const p=reflectedPosition(20,3650*rollEase(i/1000),180);assert(p.position>=-180&&p.position<=180);}
+ const left=reflectedPosition(0,99.999,100).position,right=reflectedPosition(0,100.001,100).position;assert(Math.abs(left-right)<.00001);
+ assert.equal(rollEase(0),0);assert.equal(rollEase(1),1);
+});
+test('拖动朝向正确，原地及轻微手抖保持随机弹射',async()=>{
+ const {aimAngle}=await import('./dice-motion.js');assert.equal(aimAngle(0,0),null);assert.equal(aimAngle(5,-5),null);
+ assert.equal(Math.abs(aimAngle(100,0)),Math.PI);assert.equal(aimAngle(0,-100),Math.PI/2);assert.equal(Math.abs(aimAngle(-100,0)),0);assert.equal(aimAngle(80,80),-3*Math.PI/4);
 });

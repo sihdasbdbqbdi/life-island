@@ -1,5 +1,5 @@
 import React,{useEffect,useRef} from 'react';
-import {playMoneySound} from './sound.js';
+import {playMoneySound,playPaperSound} from './sound.js';
 // 每批使用固定起点，先弹出减速，再沿曲线加速到实时的排行榜位置。
 export default function MoneyFlights({batch,rows,reduced,sound,onDone}){
  const layer=useRef(null);
@@ -11,7 +11,7 @@ export default function MoneyFlights({batch,rows,reduced,sound,onDone}){
   for(const group of batch.groups){
    const row=rows.current[group.playerId];if(!row)continue;
    const rect=row.getBoundingClientRect();const target={x:Math.min(innerWidth-25,Math.max(25,rect.right-45)),y:Math.min(innerHeight-30,Math.max(30,rect.top+rect.height/2))};
-   const pulse=()=>{row.getAnimations().forEach(a=>a.cancel());animations.push(row.animate(reduced?[{opacity:.65},{opacity:1}]:[{transform:'scale(1)'},{transform:'scale(1.08,.9)',offset:.28},{transform:'scale(.97,1.08)',offset:.6},{transform:'scale(1)'}],{duration:380,easing:'ease-out'}));};
+   const pulse=()=>{const surfaces=[row.querySelector('.token'),row.querySelector('.wallet-amount')].filter(Boolean);for(const surface of surfaces){surface.getAnimations().forEach(a=>a.cancel());animations.push(surface.animate(reduced?[{opacity:.65},{opacity:1}]:[{transform:'scale(1)'},{transform:'scale(1.22,.78)',offset:.25},{transform:'scale(.9,1.2)',offset:.53},{transform:'scale(1.08,.95)',offset:.77},{transform:'scale(1)'}],{duration:430,easing:'ease-out'}));}};
    if(reduced){pulse();if(sound)playMoneySound(group.amount);continue;}
    const count=Math.min(20,Math.max(1,Math.ceil(group.amount/10)));
    for(let i=0;i<count;i++){
@@ -20,8 +20,9 @@ export default function MoneyFlights({batch,rows,reduced,sound,onDone}){
     const x=start.x+spread,y=start.y-55-(i%4)*12;
     const dx=target.x-x,dy=target.y-y;
     const translate=(x,y,scale,angle)=>`translate(${x}px,${y}px) translate(-50%,-50%) rotate(${angle}deg) scale(${scale})`;
-    const frames=[{opacity:0,transform:translate(start.x,start.y,.2,-20),offset:0,easing:'cubic-bezier(.1,.8,.2,1)'},{opacity:1,transform:translate(x,y,1.2,i%2?15:-15),offset:.25,easing:'ease-out'},{opacity:1,transform:translate(x+4,y-3,1,0),offset:.43,easing:'cubic-bezier(.55,0,.9,.55)'},{opacity:1,transform:translate(x+dx*.42,y+dy*.22,.9,12),offset:.73,easing:'ease-in'},{opacity:1,transform:translate(target.x,target.y,.35,0),offset:.96},{opacity:0,transform:translate(target.x,target.y,.15,0),offset:1}];
+    const frames=[{opacity:0,transform:translate(start.x,start.y,.2,-20),offset:0,easing:'cubic-bezier(.1,.8,.2,1)'},{opacity:1,transform:translate(x,y,1.5,i%2?23:-23),offset:.25,easing:'ease-out'},{opacity:1,transform:translate(x+4,y-3,1,0),offset:.43,easing:'cubic-bezier(.55,0,.9,.55)'},{opacity:1,transform:translate(x+dx*.42,y+dy*.22,.9,12),offset:.73,easing:'ease-in'},{opacity:1,transform:translate(target.x,target.y,.35,0),offset:.96},{opacity:0,transform:translate(target.x,target.y,.15,0),offset:1}];
     animations.push(node.animate(frames,{duration:850,delay,fill:'both'}));
+    if(sound)schedule(()=>playPaperSound(i),delay);
     schedule(()=>{pulse();if(sound&&count>1)playMoneySound(10,true,i);},delay+810);
     duration=Math.max(duration,delay+1200);
    }

@@ -11,5 +11,5 @@ export default function WalletAmount({value,reduced,arrivalDelay=0}) {
   },reduced?0:arrivalDelay);
   return()=>{cancelAnimationFrame(frame);clearTimeout(timer);clearTimeout(clear);};
  },[value,reduced]);
- return <span className={`wallet-amount ${change?'wallet-changing':''}`}><strong className="cash-number" aria-label={`余额 ${value}`}><small>$</small><span aria-hidden="true">{display.toLocaleString('zh-CN',{maximumFractionDigits:value%1?2:0})}</span></strong>{change&&<span key={change.id} aria-hidden="true" className={`money-burst ${change.delta>0?'gain':'loss'}`}><b>{change.delta>0?'+':''}{change.delta}</b></span>}</span>;
+ return <span className={`wallet-amount ${change?'wallet-changing':''} ${change?.delta<0?'wallet-loss':''}`}><strong className="cash-number" aria-label={`余额 ${value}`}><small>$</small><span aria-hidden="true">{display.toLocaleString('zh-CN',{maximumFractionDigits:value%1?2:0})}</span></strong>{change&&<span key={change.id} aria-hidden="true" className={`money-burst ${change.delta>0?'gain':'loss'}`}><b>{change.delta>0?'+':''}{change.delta}</b></span>}</span>;
 }

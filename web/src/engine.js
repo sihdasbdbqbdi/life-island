@@ -149,7 +149,6 @@ function removeEffect(p, e) {
 export function credit(s, p, amount, reason, { raw = false, derived = false, routed = false, sourceId, tile } = {}) {
   amount = money(amount);
   if (!raw && amount > 0) {
-    if (p.effects.some((e) => e.key === "voidIncome")) amount = 0;
     const skip = p.effects.find((e) => e.key === "skipIncome");
     if (skip) {
       amount = 0;
@@ -574,9 +573,7 @@ export function resolve(s, form = {}) {
       const total = p.roundIncome;
       credit(s, p, -total, c.title, { raw: true });
       p.roundIncome = 0;
-      effect(s, p, "voidIncome", "本轮后续外部收入作废", {
-        expiresRound: s.round,
-      });
+      p.effects=p.effects.filter(e=>e.key!=="voidIncome");
       break;
     }
     case "giveRoll":
@@ -890,6 +887,7 @@ export function validateSave(input) {
   normalized.rules.diceSides??=12;
   const colors = new Set();
   for (const p of normalized.players) {
+    p.effects=p.effects.filter(e=>e.key!=="voidIncome");
     if (colors.has(p.color)) p.color = COLORS.find(c=>!colors.has(c));
     colors.add(p.color);
   }

@@ -1,3 +1,6 @@
+import {CHARGE_MS,aimAngle} from "./dice-motion.js";
+import {startChargeSound,playLaunchSound} from "./sound.js";
+import {pawnRoute} from "./pawn-motion.js";
 import React, { useState, useRef, useEffect } from "react";
 import {
   Button,
@@ -52,6 +55,9 @@ function Token({ p, small = false }) {
     </span>
   );
 }
+function pawnSpot(p,pos,players){const group=players.filter(t=>t.pos===pos||t.id===p.id).sort((a,b)=>a.id.localeCompare(b.id));const index=Math.max(0,group.findIndex(t=>t.id===p.id));const slots=[[.16,.25],[.84,.76],[.16,.76],[.84,.25]];return slots[(index+(pos%4))%4];}
+export function Pawn({p,walking=false}){return <span className={`little-person ${walking?'walking':''}`} style={{color:playerColor(p),'--idle-delay':`${-(p.id.charCodeAt(0)%7)}s`}}><span className="person-figure"><svg className="person-body" viewBox="0 0 36 30" aria-hidden="true"><path className="arm arm-left" d="M11 1Q8 4 7 7Q1 8 2 15Q3 22 9 21Q13 20 13 13L15 3Z"/><path className="arm arm-right" d="M25 1Q28 4 29 7Q35 8 34 15Q33 22 27 21Q23 20 23 13L21 3Z"/><path className="leg leg-left" d="M12 11Q11 16 10 20C5 25 8 29 13 28C18 28 18 24 18 19L19 11Z"/><path className="leg leg-right" d="M24 11Q25 16 26 20C31 25 28 29 23 28C18 28 18 24 18 19L17 11Z"/><path className="person-shirt" d="M12 0H24V19Q21 16 18 19Q15 16 12 19Z"/><path className="shirt-outline" d="M12 0V19M24 0V19" fill="none"/><circle cx="15" cy="14" r="2.3" fill="#ff285d" stroke="none"/><circle cx="21" cy="14" r="2.3" fill="#ff285d" stroke="none"/></svg><Token p={p} small/><svg className="raised-arms" viewBox="0 0 40 54" aria-hidden="true"><path d="M9 40C3 40 0 32 1 25C1 20 6 20 7 25L12 35Q14 40 9 40Z"/><path d="M31 40C37 40 40 32 39 25C39 20 34 20 33 25L28 35Q26 40 31 40Z"/></svg></span></span>;}
+
 function ColoredText({text,players}) {
   const names=[...players].sort((a,b)=>b.name.length-a.name.length);
   if(!names.length)return text;
@@ -77,6 +83,14 @@ export default function App() {
   const [sound,setSound]=useState(()=>{try{return localStorage.getItem("life-island-sound")!=="off";}catch{return true;}});
   const [detailedLog,setDetailedLog]=useState(false);
   const [rename,setRename]=useState(null),[renameText,setRenameText]=useState("");
+  const [dicePressed,setDicePressed]=useState(false),[throwPower,setThrowPower]=useState(0),[throwAngle,setThrowAngle]=useState(null);
+  const aimDirection=useRef({x:0,y:0,startX:0,startY:0});
+  const chargeStart=useRef(null),chargeStop=useRef(null),lastRelease=useRef(0);
+  function cancelCharge(){chargeStart.current=null;setDicePressed(false);chargeStop.current?.();chargeStop.current=null;}
+  function beginCharge(e){if(e.button!==undefined&&e.button!==0)return;if(chargeStart.current!==null||busyRef.current)return;chargeStart.current=performance.now();aimDirection.current={x:0,y:0,startX:e.clientX||0,startY:e.clientY||0};setDicePressed(true);if(e.pointerId!==undefined)e.currentTarget.setPointerCapture(e.pointerId);if(sound){const started=chargeStart.current;void prepareAudio().then(()=>{if(chargeStart.current===started)chargeStop.current=startChargeSound();});}}
+  function moveCharge(e){if(chargeStart.current!==null)aimDirection.current={...aimDirection.current,x:e.clientX-aimDirection.current.startX,y:e.clientY-aimDirection.current.startY};}
+  function releaseCharge(){if(chargeStart.current===null)return;const power=Math.min(1,(performance.now()-chargeStart.current)/CHARGE_MS);lastRelease.current=Date.now();const aim=aimDirection.current;setThrowAngle(aimAngle(aim.x,aim.y));cancelCharge();setThrowPower(power);if(sound)playLaunchSound(power);throwDice();}
+  useEffect(()=>{const cancel=()=>cancelCharge();window.addEventListener('blur',cancel);const hidden=()=>{if(document.hidden)cancel();};document.addEventListener('visibilitychange',hidden);return()=>{chargeStop.current?.();window.removeEventListener('blur',cancel);document.removeEventListener('visibilitychange',hidden);};},[]);
   const [sorting,setSorting]=useState(false);
   const [moneyFlight,setMoneyFlight]=useState([]);const walletRows=useRef({});
   useEffect(()=>{if(!sorting)return;const t=setTimeout(()=>setSorting(false),reduced?100:1100);return()=>clearTimeout(t);},[sorting,reduced]);
@@ -198,26 +212,40 @@ export default function App() {
       if(!alive.current)return;
       setStage("moving");
       const t=E.player(visual,path.playerId);if(!t)continue;
-      let previousPoint;
-      const setPosition=(pos,step)=>{
+      const count=Math.abs(path.steps);
+      const positions=Array.from({length:count+1},(_,step)=>((path.from+Math.sign(path.steps)*step)%E.BOARD.length+E.BOARD.length)%E.BOARD.length);
+      const points=positions.map((pos,step)=>{
         const tile=tileRefs.current[pos];
-        const point={x:tile?tile.offsetLeft+tile.offsetWidth/2:0,y:tile?tile.offsetTop+tile.offsetHeight*.78:0};
-        if(step===0||!movingRef.current)setMotion({playerId:path.playerId,pos,step,...point});
-        else {const node=movingRef.current;const transform=q=>`translate(${q.x}px,${q.y}px)`;node.style.transform=transform(point);if(!reduced){node.animate([{transform:transform(previousPoint)},{transform:transform(point)}],{duration:140,easing:'linear'});node.querySelector('.pawn-hop').animate([{transform:'translateY(0) scale(1)'},{transform:'translateY(-9px) scale(1.07,.96)',offset:.45},{transform:'translateY(0) scale(1)'}],{duration:140});}}
-        previousPoint=point;
-      };
-      setPosition(path.from,0);
+        const spot=step===0||step===count?pawnSpot(t,pos,visual.players):[.5,.5];
+        return {x:tile?tile.offsetLeft+Math.max(18,Math.min(tile.offsetWidth-18,tile.offsetWidth*spot[0])):0,y:tile?tile.offsetTop+Math.max(22,Math.min(tile.offsetHeight-22,tile.offsetHeight*spot[1])):0};
+      });
+      setMotion({playerId:path.playerId,pos:path.from,step:0,...points[0]});
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      for(let step=1;step<=Math.abs(path.steps);step++){
-        if(!alive.current)return;
-        const pos=((path.from+Math.sign(path.steps)*step)%E.BOARD.length+E.BOARD.length)%E.BOARD.length;
-        t.pos=pos;setPosition(pos,step);
+      const arrive=step=>{
+        const pos=positions[step];t.pos=pos;
         if(sound&&!reduced)playStepSound();
-        if(!reduced&&tileRefs.current[pos])tileRefs.current[pos].animate([{transform:'scale(1)'},{transform:'translateY(6px) scale(1.08,.88)',offset:.3},{transform:'translateY(-3px) scale(.97,1.06)',offset:.7},{transform:'none'}],{duration:340});
+        if(!reduced&&tileRefs.current[pos])tileRefs.current[pos].animate([{transform:'scale(1)'},{transform:'translateY(8px) scale(1.12,.82)',offset:.3},{transform:'translateY(-5px) scale(.94,1.12)',offset:.7},{transform:'none'}],{duration:340});
         const passing=moneyEvents.filter(e=>e.atPath===pathIndex&&e.atStep===step);
-        if(passing.length){for(const e of passing)E.player(visual,e.playerId).cash+=e.amount;setPresentation(E.clone(visual));await audioReady;flyMoney(passing);}
-        if(step===Math.abs(path.steps)&&tileRefs.current[pos])tileRefs.current[pos].animate([{background:'#ffbf1f',color:'#0a0b0e',transform:reduced?'none':'scale(1.08)'},{background:'#ffbf1f',color:'#0a0b0e',offset:.65},{transform:'none'}],{duration:950});
-        if(!reduced)await delay(140);
+        if(passing.length){for(const e of passing)E.player(visual,e.playerId).cash+=e.amount;setPresentation(E.clone(visual));flyMoney(passing);}
+        if(step===count&&tileRefs.current[pos])tileRefs.current[pos].animate([{background:'#ffbf1f',color:'#0a0b0e'},{background:'#ffbf1f',color:'#0a0b0e',offset:.65},{}],{duration:950});
+      };
+      if(reduced){for(let step=1;step<=count;step++)arrive(step);}
+      else if(count){
+        const route=pawnRoute(points),duration=count*230;
+        await new Promise(resolve=>{
+          let start=null,sample=1,nextStep=1;
+          const frame=now=>{
+            if(!alive.current){resolve();return;}
+            if(start===null)start=now;
+            const progress=Math.min(1,(now-start)/duration),distance=progress*route.distance;
+            while(sample<route.samples.length-1&&route.samples[sample].distance<distance)sample++;
+            const a=route.samples[sample-1],b=route.samples[sample],mix=(distance-a.distance)/(b.distance-a.distance||1);
+            if(movingRef.current)movingRef.current.style.transform=`translate(${a.x+(b.x-a.x)*mix}px,${a.y+(b.y-a.y)*mix}px)`;
+            while(nextStep<=count&&distance>=route.arrivals[nextStep]-0.001)arrive(nextStep++);
+            if(progress<1)requestAnimationFrame(frame);else resolve();
+          };
+          requestAnimationFrame(frame);
+        });
       }
     }
     if(!alive.current)return;
@@ -421,8 +449,13 @@ export default function App() {
                           ? "本轮结束"
                           : "准备开局"}
                     </strong>
-                    <button className="dice-hitbox" aria-label="掷骰子" disabled={blocked||s.phase!=="playing"||E.needsScore(s)||!!pending||remaining<1} onClick={throwDice}><span className="dice-wrap">
+                    <button className="dice-hitbox" aria-label="掷骰子" disabled={blocked||s.phase!=="playing"||E.needsScore(s)||!!pending||remaining<1} onPointerDown={beginCharge} onPointerMove={moveCharge} onPointerUp={releaseCharge} onPointerCancel={cancelCharge} onLostPointerCapture={cancelCharge} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();cancelCharge();}else if(e.key===' '||e.key==='Enter'){e.preventDefault();if(!e.repeat)beginCharge(e);}}} onKeyUp={e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseCharge();}}} onBlur={cancelCharge} onContextMenu={e=>e.preventDefault()} onClick={e=>{if(e.detail===0&&Date.now()-lastRelease.current>400){setThrowPower(0);setThrowAngle(null);throwDice();}}}><span className="dice-wrap">
                       <Dice
+                        pressed={dicePressed}
+                        power={throwPower}
+                        launchAngle={throwAngle}
+                        aim={aimDirection}
+                        sound={sound}
                         sides={s.rules.diceSides||12}
                         value={Math.min(s.rules.diceSides||12,busy ? die : s.result?.die || (s.rules.diceSides||12))}
                         rolling={stage === "rolling"}
@@ -456,7 +489,7 @@ export default function App() {
                     ) : (
                       <>
                         <p className="center-copy">{stage==="rolling"?`${s.rules.diceSides||12} 面骰`:stage==="moving"?"前进中…":s.acted?(s.result?.skipped?s.result.description||"暂停一次":`前进 ${s.result?.steps} 格`):`${s.rules.diceSides||12} 面骰`}</p>
-                        {busy?<p className="dice-hint">{stage==="rolling"?"掷骰中…":"移动中…"}</p>:pending?<Button type="primary" size="large" onClick={()=>setCardOpen(true)}>结算烧烧卡</Button>:remaining>0?<p className="dice-hint">{s.acted?"点击骰子 · 再掷一次":"点击骰子"}</p>:<Button type="primary" size="large" disabled={blocked} onClick={()=>animateAction(E.next)}>{nextPlayer?"下一位":"本轮结算"}</Button>}
+                        {busy?<p className="dice-hint">{stage==="rolling"?"掷骰中…":"移动中…"}</p>:pending?<Button type="primary" size="large" onClick={()=>setCardOpen(true)}>结算烧烧卡</Button>:remaining>0?<p className="dice-hint">按住蓄力 · 拖动瞄准</p>:<Button type="primary" size="large" disabled={blocked} onClick={()=>animateAction(E.next)}>{nextPlayer?"下一位":"本轮结算"}</Button>}
 
                       </>
                     )}
@@ -501,7 +534,7 @@ export default function App() {
                       {here.length > 0 && (
                         <div className="tile-tokens">
                           {here.slice(0, 4).map((t) => (
-                            <span key={t.id+"-"+(t.id===p?.id&&!E.needsScore(s))} className={t.id===p?.id?"turn-token":""}><Token p={t} small /></span>
+                            <span key={t.id+"-"+(t.id===p?.id&&!E.needsScore(s))} className={`pawn-slot ${t.id===p?.id?"turn-token":""}`} style={{left:`clamp(18px, ${pawnSpot(t,i,s.players)[0]*100}%, calc(100% - 18px))`,top:`clamp(22px, ${pawnSpot(t,i,s.players)[1]*100}%, calc(100% - 22px))`}}><Pawn p={t}/></span>
                           ))}
                           {here.length > 4 && (
                             <span className="overflow-token">
@@ -513,7 +546,7 @@ export default function App() {
                     </div>
                   );
                 })}
-                {motion&&<div ref={movingRef} className="moving-pawn" data-step={motion.step} style={{transform:`translate(${motion.x}px, ${motion.y}px)`}}><div key={motion.step} className="pawn-step"><div className="pawn-hop"><Token p={E.player(s,motion.playerId)}/></div></div></div>}
+                {motion&&<div ref={movingRef} className="moving-pawn" data-step={motion.step} style={{transform:`translate(${motion.x}px, ${motion.y}px)`}}><div key={motion.step} className="pawn-step"><div className="pawn-hop"><Pawn p={E.player(s,motion.playerId)} walking/></div></div></div>}
               </div>
             </section>{activityPanel}</div>
             <aside className="sidebar">{flowPanel}
@@ -794,7 +827,7 @@ export default function App() {
         pushBackground={false}
       >
         {pending && (
-          <CardDraw key={pending.id} revealed={pending.revealed} name={E.player(s,pending.playerId)?.name} reduced={reduced} sound={sound} onReveal={()=>commit(d=>{const card=d.pending.find(c=>c.id===pending.id);if(card)card.revealed=true;})}>
+          <CardDraw companion={<Pawn p={E.player(s,pending.playerId)}/>} key={pending.id} revealed={pending.revealed} name={E.player(s,pending.playerId)?.name} reduced={reduced} sound={sound} onReveal={()=>commit(d=>{const card=d.pending.find(c=>c.id===pending.id);if(card)card.revealed=true;})}>
           <CardResolver
             key={pending.id}
             pending={pending}
@@ -1349,10 +1382,10 @@ function Rules({ s }) {
           AI：本轮下一次掷骰及连带卡牌收入减半，轮末失效。PPT：接下来两次掷骰及连带卡牌的每笔收入＋20，可跨轮。
         </li>
         <li>
-          外部收入包括格子与奖金，参与倍率与持续状态；玩家间转账原额转移；AI和PPT在生效行动中也影响收到的转账，付款额不变。多个倍率相乘；跳过收入优先，本轮收入作废时后续外部收入为0。
+          外部收入包括格子与奖金，参与倍率与持续状态；玩家间转账原额转移；AI和PPT在生效行动中也影响收到的转账，付款额不变。多个倍率相乘；跳过收入优先。
         </li>
         <li>
-          “上次收入翻倍”补发与上次收入相同的金额；“本轮收入作废”扣除已入账正收入，并屏蔽后续外部收入，不追溯收款方。
+          “上次收入翻倍”补发与上次收入相同的金额；“误删工资条”扣回本轮已获得的收入，之后收入照常，不追溯收款方。
         </li>
         <li>
           有奖励的移动会触发落点烧烧卡；“后退6格不获取金钱”和“回起点不领奖”不触发落点事件。
