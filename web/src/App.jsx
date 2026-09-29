@@ -14,6 +14,7 @@ import {
 } from "animal-island-ui";
 import * as E from "./engine.js";
 import { CARDS, CARD_BY_ID } from "./cards.js";
+import AvatarEditor from "./AvatarEditor.jsx";
 import CardDraw from "./CardDraw.jsx";
 import Dice from "./Dice.jsx";
 import RoundSettlement from "./RoundSettlement.jsx";
@@ -51,7 +52,7 @@ function load() {
 function Token({ p, small = false }) {
   return (
     <span className={`token ${small ? "small" : ""}`} style={{background:playerColor(p),color:"#0a0b0e"}} title={p.name}>
-      <span>{Array.from(p.name)[0]}</span>
+      {p.avatar?<img src={p.avatar} alt="" draggable="false"/>:<span>{Array.from(p.name)[0]}</span>}
     </span>
   );
 }
@@ -82,7 +83,7 @@ export default function App() {
   const [reduced,setReduced]=useState(()=>matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [sound,setSound]=useState(()=>{try{return localStorage.getItem("life-island-sound")!=="off";}catch{return true;}});
   const [detailedLog,setDetailedLog]=useState(false);
-  const [rename,setRename]=useState(null),[renameText,setRenameText]=useState("");
+  const [rename,setRename]=useState(null);
   const [dicePressed,setDicePressed]=useState(false),[throwPower,setThrowPower]=useState(0),[throwAngle,setThrowAngle]=useState(null);
   const aimDirection=useRef({x:0,y:0,startX:0,startY:0});
   const chargeStart=useRef(null),chargeStop=useRef(null),lastRelease=useRef(0);
@@ -574,7 +575,7 @@ export default function App() {
                         <RankMedal rank={ranks.findIndex(x=>x.cash===t.cash)+1}/>
                         <Token p={t} small />
                         <div className="rank-player">
-                          <button className="rename-player" disabled={blocked} style={{color:playerColor(t)}} aria-label={`修改${t.name}的名字`} onClick={()=>{setRename(t.id);setRenameText(t.name);}}>{t.name}</button>
+                          <button className="rename-player" disabled={blocked} style={{color:playerColor(t)}} aria-label={`编辑${t.name}`} onClick={()=>setRename(t.id)}>{t.name}</button>
                           <small>
                             {t.points} 积分
                             {t.effects.length
@@ -713,7 +714,7 @@ export default function App() {
         </section>
       )}
 
-      <Modal open={!!rename} title="修改名字" typewriter={false} onClose={()=>setRename(null)} footer={<Button type="primary" disabled={!renameText.trim()||blocked} onClick={()=>{if(commit(d=>{const text=renameText.trim();if(text.length>16)throw Error("名字最多16个字");if(d.players.some(t=>t.id!==rename&&t.name===text))throw Error("名字已存在");E.player(d,rename).name=text;}))setRename(null);}}>保存</Button>}><Input aria-label="新名字" maxLength={16} value={renameText} onChange={e=>setRenameText(e.target.value)}/></Modal>
+      {rename&&s.players.some(t=>t.id===rename)&&<AvatarEditor key={rename} player={s.players.find(t=>t.id===rename)} disabled={blocked} onClose={()=>setRename(null)} onSave={(name,avatar)=>{if(commit(d=>{if(!name||name.length>16)throw Error("名字最多16个字");if(d.players.some(t=>t.id!==rename&&t.name===name))throw Error("名字已存在");Object.assign(E.player(d,rename),{name,avatar});}))setRename(null);}}/>}
       <Modal open={drawer==="add"} title="添加玩家" typewriter={false} onClose={()=>setDrawer("")} footer={<Button type="primary" disabled={blocked||!name.trim()} onClick={()=>{if(add())setDrawer("");}}>添加</Button>}>
         <Input aria-label="玩家名字" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.nativeEvent.isComposing&&add())setDrawer("");}} placeholder="名字，逗号分隔"/>
       </Modal>

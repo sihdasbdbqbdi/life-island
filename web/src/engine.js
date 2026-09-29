@@ -806,6 +806,7 @@ export function validateSave(input) {
       !Number.isFinite(p.roundStart)
     )
       throw Error("存档中的玩家数据损坏");
+    if(p.avatar != null && (typeof p.avatar !== "string" || p.avatar.length > 16000 || (p.avatar !== "" && !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(p.avatar)))) throw Error("存档头像损坏");
     ids.add(p.id);
     for (const e of p.effects) {
       if (

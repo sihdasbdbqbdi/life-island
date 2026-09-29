@@ -350,3 +350,18 @@ test('拖动朝向正确，原地及轻微手抖保持随机弹射',async()=>{
  const {aimAngle}=await import('./dice-motion.js');assert.equal(aimAngle(0,0),null);assert.equal(aimAngle(5,-5),null);
  assert.equal(Math.abs(aimAngle(100,0)),Math.PI);assert.equal(aimAngle(0,-100),Math.PI/2);assert.equal(Math.abs(aimAngle(-100,0)),0);assert.equal(aimAngle(80,80),-3*Math.PI/4);
 });
+
+test('头像随存档保存，拒绝远程地址与超大内容',()=>{
+ const s=game();s.players[0].avatar='data:image/jpeg;base64,/9j/AA==';
+ assert.equal(E.validateSave(JSON.parse(JSON.stringify(s))).players[0].avatar,s.players[0].avatar);
+ s.players[0].avatar='https://example.com/photo.jpg';assert.throws(()=>E.validateSave(s),/头像/);
+ s.players[0].avatar='data:image/jpeg;base64,'+'A'.repeat(16000);assert.throws(()=>E.validateSave(s),/头像/);
+ delete s.players[0].avatar;assert.doesNotThrow(()=>E.validateSave(s));
+});
+test('头像裁剪覆盖圆形，拖动与缩小均不露底',async()=>{
+ const {cropGeometry}=await import('./avatar.js');
+ for(const [w,h] of [[1200,800],[800,1200],[300,300]])for(const zoom of [1,2,4]){
+  const g=cropGeometry(w,h,zoom,{x:9999,y:-9999});assert(g.width>=240&&g.height>=240);
+  assert(g.width/2-Math.abs(g.x)>=120);assert(g.height/2-Math.abs(g.y)>=120);
+ }
+});
