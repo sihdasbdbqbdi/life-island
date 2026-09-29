@@ -1,0 +1,24 @@
+{
+  "name": "life-island",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test src/engine.test.js",
+    "preview": "vite preview --host 127.0.0.1",
+    "portable": "npm run build && node scripts/portable.mjs"
+  },
+  "dependencies": {
+    "animal-island-ui": "1.9.0",
+    "classnames": "^2.5.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^7.0.0"
+  }
+}

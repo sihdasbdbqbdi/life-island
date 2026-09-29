@@ -1,0 +1,10 @@
+.DS_Store
+**/node_modules/
+**/dist/
+**/playwright-report/
+**/test-results/
+.env
+.env.*
+*.log
+便携版/
+*.zip
