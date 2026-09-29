@@ -1273,11 +1273,7 @@ h1 span {
   .sao-label {
     font-size: 25px;
   }
-  .tile-tokens .token.small {
-    width: 21px;
-    height: 21px;
-    font-size: 9px;
-  }
+
   .tile-tokens .token + .token {
     margin-left: -10px;
   }

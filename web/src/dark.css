@@ -108,12 +108,12 @@ html,body,#root{-webkit-user-select:none;user-select:none;-webkit-touch-callout:
 @media(prefers-reduced-motion:reduce){.walking .arm,.walking .leg,.walking>.token{animation:none}}
 /* Character pose is independent of its board position. */
 .person-figure{position:absolute;inset:0;transform-origin:50% 90%;animation:person-idle 2100ms ease-in-out infinite;animation-delay:var(--idle-delay)}
-.person-figure>.token{position:absolute;left:0;top:-3px;z-index:2;width:40px;height:40px;box-shadow:none!important;border:3.5px solid #07090c!important;color:#fff!important;font-weight:1000;font-size:23px;animation:person-look 8500ms ease-in-out infinite;animation-delay:var(--idle-delay);transform-origin:50% 90%}
+.little-person .person-figure>.token{position:absolute;left:0;top:-3px;z-index:2;width:40px;height:40px;box-shadow:none!important;border:3.5px solid #07090c!important;color:#fff!important;font-weight:1000;font-size:23px;animation:person-look 8500ms ease-in-out infinite;animation-delay:var(--idle-delay);transform-origin:50% 90%}
 .person-body{width:30px;height:25px;left:5px;top:28px;stroke-width:4;stroke:#07090c}
 .person-body .arm,.person-body .leg{fill:currentColor;stroke:#07090c;stroke-width:4;transform-origin:18px 6px}
 .person-body .leg{transform-origin:18px 16px}.person-shirt{stroke:none}.shirt-outline{stroke-width:4}
 .walking .person-figure{animation:none}.walking .arm-left,.walking .leg-right{animation:limb-stride 180ms ease-in-out infinite alternate}.walking .arm-right,.walking .leg-left{animation:limb-stride 180ms ease-in-out infinite alternate-reverse}.walking .person-figure>.token{animation:head-bob 230ms ease-in-out infinite alternate}
-.pawn-slot.turn-token .token{outline:none!important}.turn-token .person-figure,.moving-pawn .person-figure{filter:drop-shadow(2px 0 0 #ffcf39) drop-shadow(-2px 0 0 #ffcf39) drop-shadow(0 2px 0 #ffcf39) drop-shadow(0 -2px 0 #ffcf39)}
+.pawn-slot.turn-token .token{outline:none!important}.person-highlight{display:none;position:absolute;left:0;top:0;width:40px;height:56px;overflow:visible;fill:#ffcf39;stroke:#ffcf39;stroke-width:3}.turn-token .person-highlight,.moving-pawn .person-highlight{display:block}
 .cheering .person-figure{animation:person-cheer 240ms ease-in-out 3}.cheering .arm-left{animation:none;transform:rotate(145deg)}.cheering .arm-right{animation:none;transform:rotate(-145deg)}.cheering .person-figure>.token{animation:none}
 .draw-experience{position:relative}.draw-companion{position:absolute;left:27px;bottom:30px;width:62px;height:86px;pointer-events:none;z-index:12}.draw-companion .little-person{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(1.7) rotate(8deg)}.draw-companion .person-figure>.token{animation:watch-card 2200ms ease-in-out infinite}.card-revealed>.draw-companion{left:12px;bottom:12px;opacity:.95}.flip .draw-companion .person-figure{animation:person-cheer 300ms ease-in-out 3}
 @keyframes person-idle{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.035,.965)}}
@@ -139,11 +139,14 @@ html,body,#root{-webkit-user-select:none;user-select:none;-webkit-touch-callout:
 .dice-aim{display:none;position:absolute;left:50%;top:50%;height:10px;transform-origin:0 50%;background:repeating-linear-gradient(90deg,#ffe991 0 15px,#ffa826 15px 23px);border:2px solid #171b22;border-radius:8px;pointer-events:none;z-index:-1;box-shadow:0 0 8px #ffbf1f}
 .dice-aim::after{content:"";position:absolute;right:-18px;top:-9px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:23px solid #ffe991;filter:drop-shadow(2px 0 #171b22)}
 .charge-burst{position:absolute;left:50%;top:50%;width:100px;height:100px;opacity:0;pointer-events:none;background:#fff4a3;clip-path:polygon(50% 0,57% 30%,77% 8%,72% 37%,100% 35%,77% 51%,98% 73%,67% 67%,70% 100%,50% 76%,30% 100%,33% 68%,2% 73%,24% 51%,0 35%,28% 37%,23% 8%,43% 30%)}
-.charge-flame{width:155px;height:170px;filter:drop-shadow(0 0 12px #ffb400) drop-shadow(0 0 18px #ff6a00)}
+.charge-flame{width:155px;height:170px;filter:none}.charge-flame::before{content:"";position:absolute;inset:-15px;background:radial-gradient(ellipse,#ffb40088,transparent 68%);pointer-events:none}
 .charge-flame i{border-radius:0;clip-path:polygon(50% 0,67% 34%,92% 16%,84% 54%,100% 80%,67% 100%,26% 96%,0 75%,22% 42%,18% 18%,42% 36%);background:linear-gradient(0deg,#fffac3 0%,#ffe322 48%,#ff9618 78%,#ff5c18)}
-.fully-charged .d12-dice,.super-launch .d12-dice{filter:drop-shadow(0 0 7px #fffad1) drop-shadow(0 0 16px #ffd42d) drop-shadow(0 0 24px #ff9018)!important}
+.dice-glow{position:absolute;left:50%;top:50%;width:160px;height:160px;pointer-events:none;opacity:0;background:radial-gradient(circle,#fff3a777 10%,#ffbf2766 33%,#ff8b0022 50%,transparent 70%)}.fully-charged .dice-glow,.super-launch .dice-glow{opacity:1}
 @media(prefers-reduced-motion:reduce){.charge-burst{display:none}.fully-charged .d12-dice,.super-launch .d12-dice{filter:none!important}}
 .dice-aim{height:8px;background:#fff;border:0;border-radius:999px;box-shadow:none;opacity:.55;transform-origin:0 50%}
 .dice-aim::after{right:0;top:-7px;width:20px;height:20px;border:0;border-top:8px solid #fff;border-right:8px solid #fff;border-radius:4px;transform:rotate(45deg);filter:none}
 .dice-ground-effects{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9}
 @media(prefers-reduced-motion:reduce){.dice-ground-effects{display:none}}
+
+/* Promote only the moving visual, not a stack of repainting shadow filters. */
+.moving-pawn{will-change:transform}.person-figure{transform:translateZ(0)}

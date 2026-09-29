@@ -23,17 +23,18 @@ function paint(canvas,q,bounce=0,sides=12,squash=0){
  ctx.restore();
 }
 export default function Dice({value=12,sides=12,rolling=false,reduced=false,pressed=false,power=0,sound=false,launchAngle=null,aim}){
- const canvas=useRef(null),ring=useRef(null),effects=useRef(null),flame=useRef(null),arrow=useRef(null),energy=useRef(null),orientation=useRef(faceOrientation(value,sides)),position=useRef({x:0,y:0}),shape=useRef(0);
+ const canvas=useRef(null),ring=useRef(null),effects=useRef(null),flame=useRef(null),arrow=useRef(null),energy=useRef(null),glow=useRef(null),orientation=useRef(faceOrientation(value,sides)),position=useRef({x:0,y:0}),shape=useRef(0);
  useEffect(()=>{let raf;const node=canvas.current,area=node.closest('.dice-hitbox');
+  let areaRect=area.getBoundingClientRect();const updateRect=()=>{areaRect=area.getBoundingClientRect();};window.addEventListener('resize',updateRect);window.addEventListener('scroll',updateRect,{passive:true,capture:true});
   const board=area.closest('.board');const boundX=Math.max(0,(board.clientWidth-node.clientWidth)/2-20),boundY=Math.max(0,(board.clientHeight-node.clientHeight)/2-30);
   const start=performance.now(),target=faceOrientation(value,sides);const rotation=createRollOrientation(orientation.current,target,power);let previous=start,q=orientation.current;
   let x=Math.max(-boundX,Math.min(boundX,position.current.x)),y=Math.max(-boundY,Math.min(boundY,position.current.y));
   const direction=launchAngle??Math.random()*Math.PI*2,totalTravel=450+power*3200,startX=x,startY=y;let vx=0,vy=0,height=0,lift=rolling?260+power*150:0,impactAt=-1000,grounded=false,signX=1,signY=1;
-  const bursts=[];let lastPuff=-100,charged=false;
-  if(rolling){if(power>=.995&&!reduced){const rect=area.getBoundingClientRect();effects.current?.launch(rect.left+rect.width/2+x,rect.top+rect.height/2+y);}}
+  const bursts=[];let lastPuff=-100,charged=false,lastPaintShape=NaN;
+  if(rolling){if(power>=.995&&!reduced){const rect=areaRect;effects.current?.launch(rect.left+rect.width/2+x,rect.top+rect.height/2+y);}}
   if(rolling)for(const [i,star] of [...ring.current.children].entries()){const angle=i*Math.PI/3,dx=Math.cos(angle)*(65+power*65),dy=Math.sin(angle)*(55+power*55);const base=`translate(calc(-50% + ${x}px),calc(-50% + ${y}px))`;bursts.push(star.animate(reduced?[{opacity:1},{opacity:0}]:[{opacity:0,transform:base+' scale(.2)'},{opacity:1,transform:base+` translate(${dx*.6}px,${dy*.6}px) rotate(${i*35}deg) scale(1.35)`,offset:.3},{opacity:0,transform:base+` translate(${dx}px,${dy+18}px) rotate(${i*35+55}deg) scale(.35)`}],{duration:520,delay:i%2*25}));}
 
-  const frame=now=>{const elapsed=now-start,dt=Math.min(32,Math.max(0,now-previous));previous=now;let squeeze=pressed?1:0;
+  const frame=now=>{if(now-previous<14){raf=requestAnimationFrame(frame);return;}const elapsed=now-start,dt=Math.min(32,Math.max(0,now-previous));previous=now;let squeeze=pressed?1:0;
    if(rolling&&!reduced){
     const progress=Math.min(1,elapsed/(ROLL_MS-80)),distance=totalTravel*rollEase(progress);
     const nextX=reflectedPosition(startX,Math.cos(direction)*distance,boundX),nextY=reflectedPosition(startY,Math.sin(direction)*distance,boundY);
@@ -65,11 +66,12 @@ export default function Dice({value=12,sides=12,rolling=false,reduced=false,pres
    const drawX=reduced?0:x+Math.sin(elapsed*.12)*jitter,drawY=reduced?0:y+Math.cos(elapsed*.15)*jitter*.65;
    area.style.setProperty('--dice-x',`${x}px`);area.style.setProperty('--dice-y',`${y}px`);
 
-   position.current={x,y};orientation.current=q;node.style.transform=`translate(${drawX}px,${drawY}px) scale(${rolling&&!reduced?1+.28*(elapsed<70?Math.sin(elapsed/70*Math.PI/2):Math.pow(Math.max(0,1-(elapsed-70)/300),2)):1})`;const impactAge=elapsed-impactAt,wobble=rolling&&!reduced&&impactAge>=0?.055*Math.exp(-impactAge/110)*Math.sin(impactAge/42)*Math.min(1,Math.hypot(vx,vy)/.3):0;paint(node,wobble?qMultiply(qAxis([1,0,0],wobble),q):q,reduced?0:Math.min(42,height),sides,reduced?0:shape.current);
-   if(rolling&&!reduced&&elapsed<1150&&elapsed-lastPuff>(power>=.995?25:80)){lastPuff=elapsed;const rect=area.getBoundingClientRect();effects.current?.trail(rect.left+rect.width/2+x,rect.top+rect.height/2+y,power>=.995);}
+   glow.current.style.transform=`translate(calc(-50% + ${drawX}px),calc(-50% + ${drawY}px))`;
+   position.current={x,y};orientation.current=q;node.style.transform=`translate(${drawX}px,${drawY}px) scale(${rolling&&!reduced?1+.28*(elapsed<70?Math.sin(elapsed/70*Math.PI/2):Math.pow(Math.max(0,1-(elapsed-70)/300),2)):1})`;const impactAge=elapsed-impactAt,wobble=rolling&&!reduced&&impactAge>=0?.055*Math.exp(-impactAge/110)*Math.sin(impactAge/42)*Math.min(1,Math.hypot(vx,vy)/.3):0;if(rolling||!Number.isFinite(lastPaintShape)||Math.abs(shape.current-lastPaintShape)>.003){lastPaintShape=shape.current;paint(node,wobble?qMultiply(qAxis([1,0,0],wobble),q):q,reduced?0:Math.min(42,height),sides,reduced?0:shape.current);}
+   if(rolling&&!reduced&&elapsed<1150&&elapsed-lastPuff>(power>=.995?25:80)){lastPuff=elapsed;const rect=areaRect;effects.current?.trail(rect.left+rect.width/2+x,rect.top+rect.height/2+y,power>=.995);}
 
    if(pressed||elapsed<(rolling?ROLL_MS:280))raf=requestAnimationFrame(frame);
-  };raf=requestAnimationFrame(frame);return()=>{cancelAnimationFrame(raf);bursts.forEach(a=>a.cancel());area.classList.remove('fully-charged','super-launch');flame.current?.classList.remove('charged');area.dataset.charge='';};
+  };raf=requestAnimationFrame(frame);return()=>{cancelAnimationFrame(raf);window.removeEventListener('resize',updateRect);window.removeEventListener('scroll',updateRect,true);bursts.forEach(a=>a.cancel());area.classList.remove('fully-charged','super-launch');flame.current?.classList.remove('charged');area.dataset.charge='';};
  },[value,sides,rolling,reduced,pressed,power,sound,launchAngle]);
- return <><span ref={arrow} className="dice-aim" aria-hidden="true"/><span ref={energy} className="charge-burst" aria-hidden="true"/><span ref={flame} className="charge-flame" aria-hidden="true"><i/><i/><i/><i/><i/></span><DiceEffects ref={effects}/><canvas ref={canvas} className="d12-dice" role="img" aria-label={rolling?`${sides}面骰正在滚动`:`${sides}面骰 ${value} 点`}/><span ref={ring} className="dice-click-stars" aria-hidden="true">{Array.from({length:6},(_,i)=><i key={i}/>)}</span></>;
+ return <><span ref={glow} className="dice-glow" aria-hidden="true"/><span ref={arrow} className="dice-aim" aria-hidden="true"/><span ref={energy} className="charge-burst" aria-hidden="true"/><span ref={flame} className="charge-flame" aria-hidden="true"><i/><i/><i/><i/><i/></span><DiceEffects ref={effects}/><canvas ref={canvas} className="d12-dice" role="img" aria-label={rolling?`${sides}面骰正在滚动`:`${sides}面骰 ${value} 点`}/><span ref={ring} className="dice-click-stars" aria-hidden="true">{Array.from({length:6},(_,i)=><i key={i}/>)}</span></>;
 }

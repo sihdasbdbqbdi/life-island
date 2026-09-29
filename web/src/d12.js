@@ -22,7 +22,7 @@ for(let i=0;i<vertices.length;i++)for(let j=i+1;j<vertices.length;j++)for(let k=
 export const D12_FACES=faces;
 export function qMultiply(a,b){return [a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];}
 export function qAxis(axis,angle){const s=Math.sin(angle/2);return [...scale(axis,s),Math.cos(angle/2)];}
-export function rotate(q,v){const u=q.slice(0,3),s=q[3];return add(add(scale(u,2*dot(u,v)),scale(v,s*s-dot(u,u))),scale(cross(u,v),2*s));}
+export function rotate(q,v){const [x,y,z,w]=q,[a,b,c]=v;return [(w*w+x*x-y*y-z*z)*a+2*(x*y-w*z)*b+2*(x*z+w*y)*c,2*(x*y+w*z)*a+(w*w-x*x+y*y-z*z)*b+2*(y*z-w*x)*c,2*(x*z-w*y)*a+2*(y*z+w*x)*b+(w*w-x*x-y*y+z*z)*c];}
 export function faceOrientation(value,sides=12){const list=diceFaces(sides),f=list[value-1]||list[0],z=[0,0,1],axis=cross(f.normal,z);let q;if(Math.hypot(...axis)<1e-6)q=f.normal[2]>0?[0,0,0,1]:qAxis([1,0,0],Math.PI);else q=qAxis(norm(axis),Math.acos(Math.min(1,Math.max(-1,dot(f.normal,z)))));const u=rotate(q,f.u);return qMultiply(qAxis(z,-Math.atan2(u[1],u[0])-.09),q);}
 export function qSlerp(a,b,t){let cos=dot(a,b);if(cos<0){b=scale(b,-1);cos=-cos;}if(cos>.9995)return norm(add(scale(a,1-t),scale(b,t)));const theta=Math.acos(Math.min(1,cos));return add(scale(a,Math.sin((1-t)*theta)/Math.sin(theta)),scale(b,Math.sin(t*theta)/Math.sin(theta)));}
 export const ROLL_MS=1800;

@@ -2,10 +2,11 @@ import React,{forwardRef,useEffect,useImperativeHandle,useRef} from 'react';
 import {createPortal} from 'react-dom';
 // Particles finish fading independently after the die has stopped.
 export default forwardRef(function DiceEffects(_,ref){
- const canvas=useRef(null),items=useRef([]),raf=useRef(0);
+ const canvas=useRef(null),items=useRef([]),raf=useRef(0),lastFrame=useRef(0);
  function add(item){items.current.push({...item,born:performance.now()});if(items.current.length>360)items.current.splice(0,items.current.length-360);if(!raf.current)raf.current=requestAnimationFrame(draw);}
  function draw(now){
-  const node=canvas.current;if(!node){raf.current=0;return;}const ratio=Math.min(devicePixelRatio||1,1.5),w=innerWidth,h=innerHeight;
+  if(now-lastFrame.current<30){raf.current=requestAnimationFrame(draw);return;}lastFrame.current=now;
+  const node=canvas.current;if(!node){raf.current=0;return;}const ratio=1,w=innerWidth,h=innerHeight;
   if(node.width!==Math.round(w*ratio)||node.height!==Math.round(h*ratio)){node.width=Math.round(w*ratio);node.height=Math.round(h*ratio);}
   const c=node.getContext('2d');c.setTransform(ratio,0,0,ratio,0,0);c.clearRect(0,0,w,h);
   items.current=items.current.filter(p=>now-p.born<p.life);
