@@ -14,6 +14,8 @@ import {
 } from "animal-island-ui";
 import * as E from "./engine.js";
 import { CARDS, CARD_BY_ID } from "./cards.js";
+import Pawn from "./Pawn.jsx";
+export {default as Pawn} from "./Pawn.jsx";
 import Awards from "./Awards.jsx";
 import AvatarEditor from "./AvatarEditor.jsx";
 import CardDraw from "./CardDraw.jsx";
@@ -58,7 +60,7 @@ function Token({ p, small = false }) {
   );
 }
 function pawnSpot(p,pos,players){const group=players.filter(t=>t.pos===pos||t.id===p.id).sort((a,b)=>a.id.localeCompare(b.id));const index=Math.max(0,group.findIndex(t=>t.id===p.id));const slots=[[.16,.25],[.84,.76],[.16,.76],[.84,.25]];return slots[(index+(pos%4))%4];}
-export function Pawn({p,walking=false}){return <span className={`little-person ${walking?'walking':''}`} style={{color:playerColor(p),'--idle-delay':`${-(p.id.charCodeAt(0)%7)}s`}}><span className="person-figure"><svg className="person-highlight" viewBox="0 0 40 56" aria-hidden="true"><circle cx="20" cy="17" r="20"/><path d="M10 29Q4 31 4 41Q5 47 10 46Q7 55 15 54L20 50L25 54Q33 55 30 46Q35 47 36 41Q36 31 30 29Z"/></svg><svg className="person-body" viewBox="0 0 36 30" aria-hidden="true"><path className="arm arm-left" d="M11 1Q8 4 7 7Q1 8 2 15Q3 22 9 21Q13 20 13 13L15 3Z"/><path className="arm arm-right" d="M25 1Q28 4 29 7Q35 8 34 15Q33 22 27 21Q23 20 23 13L21 3Z"/><path className="leg leg-left" d="M12 11Q11 16 10 20C5 25 8 29 13 28C18 28 18 24 18 19L19 11Z"/><path className="leg leg-right" d="M24 11Q25 16 26 20C31 25 28 29 23 28C18 28 18 24 18 19L17 11Z"/><path className="person-shirt" d="M12 0H24V19Q21 16 18 19Q15 16 12 19Z"/><path className="shirt-outline" d="M12 0V19M24 0V19" fill="none"/><circle cx="15" cy="14" r="2.3" fill="#ff285d" stroke="none"/><circle cx="21" cy="14" r="2.3" fill="#ff285d" stroke="none"/></svg><Token p={p} small/><svg className="raised-arms" viewBox="0 0 40 54" aria-hidden="true"><path d="M9 40C3 40 0 32 1 25C1 20 6 20 7 25L12 35Q14 40 9 40Z"/><path d="M31 40C37 40 40 32 39 25C39 20 34 20 33 25L28 35Q26 40 31 40Z"/></svg></span></span>;}
+
 
 function ColoredText({text,players}) {
   const names=[...players].sort((a,b)=>b.name.length-a.name.length);
