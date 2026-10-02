@@ -366,10 +366,9 @@ test('头像裁剪覆盖圆形，拖动与缩小均不露底',async()=>{
  }
 });
 
-test('重开整局保留身份头像和规则，清空本局进度与备份',()=>{
- const s=game(),old=structuredClone(s.players);s.players[0].avatar='data:image/jpeg;base64,/9j/AA==';s.players[0].cash=900;s.players[0].pos=8;s.players[0].effects.push({key:'test'});s.rules.diceSides=24;s.awardsPending=true;
- E.restartGame(s);assert.equal(s.phase,'lobby');assert.equal(s.round,0);assert.equal(s.rules.diceSides,24);assert.equal(s.roundCheckpoint,undefined);assert.equal(s.snapshots.length,0);assert.equal(s.pending.length,0);assert.equal(s.log.length,0);assert.equal(s.players[0].avatar,'data:image/jpeg;base64,/9j/AA==');
- s.players.forEach((p,i)=>{assert.equal(p.id,old[i].id);assert.equal(p.name,old[i].name);assert.equal(p.color,old[i].color);assert.equal(p.cash,0);assert.equal(p.pos,0);assert.equal(p.points,0);assert.deepEqual(p.effects,[]);});assert.doesNotThrow(()=>E.validateSave(s));
+test('重新游戏清除角色和全部本场数据，序列化恢复仍为空',()=>{
+ const s=game();s.players[0].cash=900;s.players[0].pos=8;s.players[0].effects.push({key:'test'});s.rules.diceSides=24;s.awardsPending=true;s.extraOldField=true;
+ E.restartGame(s);const empty=E.fresh();empty.createdAt=s.createdAt;assert.deepEqual(s,empty);const restored=E.validateSave(JSON.parse(JSON.stringify(s)));assert.equal(restored.players.length,0);assert.equal(restored.round,0);assert.equal(restored.phase,"lobby");assert.deepEqual(restored.snapshots,[]);
 });
 test('轮末颁奖状态可恢复，继续下一轮和整局结束互斥',()=>{
  const s=game();s.players.forEach(p=>p.points=0);E.finishRound(s);assert.equal(s.awardsPending,true);assert.equal(E.validateSave(s).awardsPending,true);

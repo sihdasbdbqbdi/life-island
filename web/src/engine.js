@@ -260,10 +260,8 @@ export function enterScore(s, value) {
   return s;
 }
 export function restartGame(s) {
- const players=clone(s.players),rules=clone(s.rules);
- Object.keys(s).forEach(k=>delete s[k]);Object.assign(s,fresh(),{rules});
- for(const old of players){addPlayer(s,old.name);Object.assign(s.players.at(-1),{id:old.id,color:old.color,avatar:old.avatar||"",cash:0,roundStart:0});}
- s.log=[];return s;
+ Object.keys(s).forEach(k=>delete s[k]);Object.assign(s,fresh());
+ return s;
 }
 export function finishGame(s){
  if(s.phase!=="between"||s.pending.length||s.settling)throw Error("请先完成本轮结算");

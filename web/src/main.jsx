@@ -7,3 +7,5 @@ import "./style.css";
 createRoot(document.getElementById("root")).render(<App />);
 
 import "./dark.css";
+
+import "./mobile.css";
