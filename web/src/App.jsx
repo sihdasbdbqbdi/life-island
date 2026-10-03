@@ -346,6 +346,7 @@ export default function App() {
                   </div>
                   {rankAdd}
                 </div>
+                <WalkingLeader state={s}/>
                 {!ranks.length ? (
                   <div className="empty-rank">
                     <Icon name="location" size={68} />
@@ -494,7 +495,6 @@ export default function App() {
                   {s.round ? `第 ${s.round} 轮` : "待开始"}
                 </div></div>
               </div>
-              <WalkingLeader state={s}/>
               <div className="board">
                 <div className="board-center">
                   <div className="center-island">
