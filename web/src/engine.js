@@ -110,6 +110,12 @@ export const ranked = (s) =>
   [...s.players].sort(
     (a, b) => b.cash - a.cash || s.players.indexOf(a) - s.players.indexOf(b),
   );
+// Historical logs are capped, so legacy totals are never inferred from position or dice.
+export function walkingLeaders(s) {
+ const complete=s.players.every(p=>p.walkedStepsComplete===true);
+ const steps=Math.max(0,...s.players.map(p=>p.walkedSteps??0));
+ return {complete,steps,leaders:steps?s.players.filter(p=>(p.walkedSteps??0)===steps):[]};
+}
 export function addPlayer(s, name) {
   name = name.trim();
   if (!name || name.length > 16) throw Error("名字请填写1～16个字");
@@ -124,6 +130,8 @@ export function addPlayer(s, name) {
     color: COLORS.find(color => !s.players.some(p => p.color === color)),
     cash: s.rules.initialMoney,
     points: 0,
+    walkedSteps: 0,
+    walkedStepsComplete: true,
     pos: 0,
     effects: [],
     lastIncome: 0,
@@ -271,6 +279,8 @@ export function restartRound(s) {
   if(s.phase==="finished")throw Error("本局已结束，请重新开局");
   if(!s.roundCheckpoint) throw Error("此轮没有开始前的备份，可从下一轮使用重来");
   const saved = clone(s.roundCheckpoint), name = s.roundName;
+  // Restarting a round rewinds board state, but keeps distance actually walked in this game.
+  for(const p of saved.players){const now=player(s,p.id);p.walkedSteps=now?.walkedSteps??0;p.walkedStepsComplete=now?.walkedStepsComplete??false;}
   Object.keys(s).forEach(k => delete s[k]); Object.assign(s, saved);
   return startRound(s, undefined, name);
 }
@@ -365,6 +375,8 @@ export function roll(s, forced) {
   s.result = { playerId: p.id, die, steps, beforeCash: p.cash };
   record(s, `${p.name} 消耗 ${s.rules.cost} 积分，掷出 ${die} 点`, true);
   move(s, p, steps);
+  p.walkedSteps=(p.walkedSteps??0)+steps;
+  p.walkedStepsComplete??=false;
   const delta=money(p.cash-s.result.beforeCash);
   record(s, `${p.name} · ${steps} 步${delta ? ` · ${delta > 0 ? "+" : ""}${delta}` : ""}${s.pending.length ? " · 抽卡" : ""}`);
   return s;
@@ -820,6 +832,9 @@ export function validateSave(input) {
     )
       throw Error("存档中的玩家数据损坏");
     if(p.avatar != null && (typeof p.avatar !== "string" || p.avatar.length > 16000 || (p.avatar !== "" && !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(p.avatar)))) throw Error("存档头像损坏");
+    if(p.walkedSteps!==undefined&&(!Number.isSafeInteger(p.walkedSteps)||p.walkedSteps<0))throw Error("存档行走步数损坏");
+    if(p.walkedStepsComplete!==undefined&&typeof p.walkedStepsComplete!=="boolean")throw Error("存档行走步数完整性损坏");
+    if(p.walkedSteps===undefined&&p.walkedStepsComplete===true)throw Error("存档行走步数缺失");
     ids.add(p.id);
     for (const e of p.effects) {
       if (
@@ -921,6 +936,10 @@ export function validateSave(input) {
   normalized.roundJobs??=[];normalized.settling??=false;
   if(!Array.isArray(normalized.roundJobs)||normalized.roundJobs.some(j=>!['swap','stand','laugh','talk'].includes(j.kind)||typeof j.id!=='string'||!ids.has(j.playerId)||(['swap','talk'].includes(j.kind)&&(!ids.has(j.targetId)||j.targetId===j.playerId))))throw Error('轮末结算损坏');
   for(const p of normalized.players){p.roundNet??=money(p.cash-p.roundStart);if(!Number.isFinite(p.roundNet))throw Error('收支记录损坏');}
+  for(const p of normalized.players){
+    // Missing legacy fields start at zero with an explicit partial-history flag.
+    p.walkedSteps??=0;p.walkedStepsComplete??=false;
+  }
   delete normalized.moneyEvents;
   delete normalized.animationPaths;
   return normalized;

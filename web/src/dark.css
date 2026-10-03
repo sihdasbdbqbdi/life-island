@@ -158,3 +158,5 @@ html,body,#root{-webkit-user-select:none;user-select:none;-webkit-touch-callout:
 [data-animal-drawer-portal] [class*="animal-panelBottom-"],
 [data-animal-drawer-portal] [class*="animal-panelTop-"] {max-height:calc(100% - 24px);box-sizing:border-box;}
 [data-animal-drawer-portal] [class*="animal-body-"] {min-width:0;min-height:0;overflow-x:hidden;overscroll-behavior:contain;}
+
+.walking-leader{display:flex;align-items:center;flex-wrap:wrap;gap:5px 10px;margin:0 0 12px;padding:9px 12px;border:2px solid #101217;border-radius:12px;background:#1f252b;font-size:13px;line-height:1.5}.walking-leader-label{color:#b8c1cd;font-weight:800}.walking-leader-names{display:flex;flex-wrap:wrap;gap:4px 10px;min-width:0}.walking-leader-names strong{overflow-wrap:anywhere}.walking-leader b{color:#ffce60;white-space:nowrap}.walking-leader small{flex-basis:100%;color:#b8c1cd;font-size:11px}.walking-leader-empty{color:#b8c1cd}@media(max-width:600px){.walking-leader{margin-bottom:8px;padding:6px 9px;font-size:12px;gap:3px 7px}.walking-leader small{font-size:10px}}

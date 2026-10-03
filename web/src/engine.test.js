@@ -378,3 +378,40 @@ test('轮末颁奖状态可恢复，继续下一轮和整局结束互斥',()=>{
 test('未完成烧烧卡和轮末任务不会提前颁奖或结束整局',()=>{
  const s=game();assert.throws(()=>E.finishGame(s),/结算/);s.players.forEach(p=>p.points=0);s.pending.push({id:'pending'});assert.throws(()=>E.finishRound(s),/烧烧卡/);assert(!s.awardsPending);s.pending=[];s.roundJobs.push({kind:'talk',id:'job',playerId:s.players[0].id,targetId:s.players[1].id});E.finishRound(s);assert.equal(s.settling,true);assert(!s.awardsPending);assert.throws(()=>E.finishGame(s),/结算/);
 });
+
+test('正常行走累计实际步数，多圈不按棋盘位置或骰点计数',()=>{
+ const s=game(2),p=s.players[0];s.rules.diceSides=24;p.points=30;
+ E.roll(s,18);assert.equal(p.pos,0);assert.equal(p.walkedSteps,18);
+ s.pending=[];s.acted=false;E.roll(s,18);assert.equal(p.pos,0);assert.equal(p.walkedSteps,36);
+ s.pending=[];s.acted=false;p.effects.push({id:crypto.randomUUID(),key:'rollOne',label:'只走一步',createdAction:s.action});
+ E.roll(s,12);assert.equal(s.result.die,12);assert.equal(s.result.steps,1);assert.equal(p.walkedSteps,37);
+ assert.equal(E.walkingLeaders(s).steps,37);assert.equal(E.walkingLeaders(s).leaders[0].id,p.id);
+});
+test('所有特殊移动不累计，后退传送主持人调整不改变正常行走计数',()=>{
+ for(const kind of ['move','payMove','optionalMove','home','nearMove']){
+  const cards=CARDS.filter(c=>c.kind===kind);assert(cards.length);
+  for(const c of cards){const s=game(3);s.players.forEach(p=>{p.walkedSteps=7;p.cash=1000;});card(s,c.id);E.resolve(s,{choice:'yes'});assert(s.players.every(p=>p.walkedSteps===7),c.title);}
+ }
+ const s=game(2),p=s.players[0];p.walkedSteps=8;E.move(s,p,-6,{reward:false,trigger:false});E.move(s,p,25,{reward:false,trigger:false});assert.equal(p.walkedSteps,8);E.adjust(s,p.id,{cash:0,points:0,pos:13});assert.equal(p.walkedSteps,8);
+});
+test('取消或受阻没有正常行走：不足积分、待卡牌、暂停及转赠机会不计',()=>{
+ const s=game(2),p=s.players[0];p.points=0;assert.throws(()=>E.roll(s,3));assert.equal(p.walkedSteps,0);
+ p.points=9;card(s,0);assert.throws(()=>E.roll(s,3));assert.equal(p.walkedSteps,0);s.pending=[];
+ p.effects.push({id:crypto.randomUUID(),key:'skip',label:'跳过',createdAction:s.action});E.roll(s,3);assert.equal(p.walkedSteps,0);
+ s.acted=false;p.effects.push({id:crypto.randomUUID(),key:'giveRoll',label:'转赠',targetId:s.players[1].id,createdAction:s.action});E.roll(s,3);assert(s.players.every(p=>p.walkedSteps===0));
+});
+test('累计可持久化和撤销，重来本轮保留累计，重新游戏清空',()=>{
+ const s=game(2),before=E.clone(s);E.roll(s,2);assert.equal(s.players[0].walkedSteps,2);
+ const restored=E.validateSave(JSON.parse(JSON.stringify(s)));assert.equal(restored.players[0].walkedSteps,2);assert.equal(restored.players[0].walkedStepsComplete,true);
+ assert.equal(E.validateSave(before).players[0].walkedSteps,0);E.restartRound(restored);assert.equal(restored.players[0].walkedSteps,2);assert.equal(restored.players[0].pos,0);
+ E.restartGame(restored);assert.deepEqual(restored.players,[]);assert.equal(E.walkingLeaders(restored).steps,0);E.addPlayer(restored,'新玩家');assert.equal(restored.players[0].walkedSteps,0);
+});
+test('领先提示支持并列、改名、移除与零步，不用位置排序',()=>{
+ const s=game(3);assert.deepEqual(E.walkingLeaders(s).leaders,[]);s.players[0].walkedSteps=8;s.players[1].walkedSteps=8;s.players[2].pos=17;
+ assert.deepEqual(E.walkingLeaders(s).leaders.map(p=>p.id),s.players.slice(0,2).map(p=>p.id));s.players[0].name='改名后';assert.equal(E.walkingLeaders(s).leaders[0].name,'改名后');s.players.splice(0,1);assert.equal(E.walkingLeaders(s).leaders.length,1);
+});
+test('旧存档不编造历史，清楚标识部分计数并拒绝损坏步数',()=>{
+ const old=game(2);old.players[0].pos=17;old.players[0].walkedSteps=88;for(const p of old.players){delete p.walkedSteps;delete p.walkedStepsComplete;}for(const p of old.roundCheckpoint.players){delete p.walkedSteps;delete p.walkedStepsComplete;}
+ const s=E.validateSave(JSON.parse(JSON.stringify(old)));assert(s.players.every(p=>p.walkedSteps===0&&!p.walkedStepsComplete));assert.equal(E.walkingLeaders(s).complete,false);E.roll(s,2);assert.equal(s.players[0].walkedSteps,2);assert.equal(E.walkingLeaders(s).complete,false);E.restartRound(s);assert.equal(s.players[0].walkedSteps,2);assert.equal(s.players[0].walkedStepsComplete,false);
+ for(const n of [-1,1.5,Number.MAX_SAFE_INTEGER+1,'5']){const corrupt=E.clone(s);corrupt.players[0].walkedSteps=n;assert.throws(()=>E.validateSave(corrupt),/步数/);}
+});

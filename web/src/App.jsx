@@ -18,6 +18,7 @@ export {default as Pawn} from "./Pawn.jsx";
 import Awards from "./Awards.jsx";
 import AvatarEditor from "./AvatarEditor.jsx";
 import Select from "./ViewportSelect.jsx";
+import WalkingLeader from "./WalkingLeader.jsx";
 import CardDraw from "./CardDraw.jsx";
 import Dice from "./Dice.jsx";
 import RoundSettlement from "./RoundSettlement.jsx";
@@ -493,6 +494,7 @@ export default function App() {
                   {s.round ? `第 ${s.round} 轮` : "待开始"}
                 </div></div>
               </div>
+              <WalkingLeader state={s}/>
               <div className="board">
                 <div className="board-center">
                   <div className="center-island">
