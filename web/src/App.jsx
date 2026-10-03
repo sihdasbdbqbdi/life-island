@@ -19,6 +19,7 @@ import Awards from "./Awards.jsx";
 import AvatarEditor from "./AvatarEditor.jsx";
 import Select from "./ViewportSelect.jsx";
 import WalkingLeader from "./WalkingLeader.jsx";
+import RoundCashRecovery from "./RoundCashRecovery.jsx";
 import CardDraw from "./CardDraw.jsx";
 import Dice from "./Dice.jsx";
 import RoundSettlement from "./RoundSettlement.jsx";
@@ -73,6 +74,7 @@ export default function App() {
   const mobileWalletRows=useRef({});
   useEffect(()=>{const mq=matchMedia("(max-width: 600px)");const update=()=>setMobile(mq.matches);mq.addEventListener("change",update);return()=>mq.removeEventListener("change",update);},[]);
   const [rename,setRename]=useState(null);
+  const [cashRecovery,setCashRecovery]=useState(false);
   const [awardsReview,setAwardsReview]=useState(false);
   const [dicePressed,setDicePressed]=useState(false),[throwPower,setThrowPower]=useState(0),[throwAngle,setThrowAngle]=useState(null);
   const aimDirection=useRef({x:0,y:0,startX:0,startY:0});
@@ -628,6 +630,7 @@ export default function App() {
         <section className="page-panel">
           <div className="page-title">
             <h2>每轮排名</h2>
+            <Button disabled={blocked||(!s.players.length&&!s.snapshots.find(r=>r.round===2)?.players.length)} onClick={()=>setCashRecovery(true)}>补录第二轮资金</Button>
           </div>
           {!s.snapshots.length ? (
             <div className="large-empty">
@@ -643,6 +646,8 @@ export default function App() {
                     <h3>第 {r.round} 轮</h3>
                     <span>{r.name}</span>
                   </div>
+                  {r.recovery&&<p className="muted">资金已手动补录；缺少依据的位置和本轮变化显示 —。</p>}
+                  {s.cashRepairUndo?.round===r.round&&<Button size="small" disabled={blocked} onClick={()=>setConfirm({title:"撤销上次资金补录？",body:"恢复补录前的第二轮历史记录，当前余额和其他轮次不变。",action:()=>commit(E.undoRoundCash)})}>撤销上次资金补录</Button>}
                   <table>
                     <thead>
                       <tr>
@@ -661,12 +666,11 @@ export default function App() {
                           </td>
                           <td>${fmt(x.cash)}</td>
                           <td
-                            className={x.change >= 0 ? "positive" : "negative"}
+                            className={x.change===null?"muted":x.change >= 0 ? "positive" : "negative"}
                           >
-                            {x.change >= 0 ? "+" : ""}
-                            {fmt(x.change)}
+                            {x.change===null?"—":`${x.change>=0?"+":""}${fmt(x.change)}`}
                           </td>
-                          <td>{x.pos === 0 ? "起点" : `${x.pos}格`}</td>
+                          <td>{x.pos===null?"—":x.pos === 0 ? "起点" : `${x.pos}格`}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -727,6 +731,7 @@ export default function App() {
           {drawer==="more"&&<div className="mobile-menu">{topActions}<Button onClick={()=>{setTab("history");setDrawer("");}}>每轮排名</Button><Button onClick={()=>{setTab("cards");setDrawer("");}}>烧烧卡图鉴</Button><Button onClick={()=>setDrawer("rules")}>玩法说明</Button></div>}
         </Drawer>
       </>}
+      {cashRecovery&&<RoundCashRecovery state={s} disabled={blocked} onClose={()=>setCashRecovery(false)} onSave={changes=>{exportSave();if(commit(d=>E.repairRoundCash(d,2,changes))){setCashRecovery(false);setNotice("第二轮资金记录已补录，可撤销；当前余额未改变。");return true;}return false;}}/>}
       {rename&&s.players.some(t=>t.id===rename)&&<AvatarEditor key={rename} player={s.players.find(t=>t.id===rename)} disabled={blocked} onClose={()=>setRename(null)} onSave={(name,avatar)=>{if(commit(d=>{if(!name||name.length>16)throw Error("名字最多16个字");if(d.players.some(t=>t.id!==rename&&t.name===name))throw Error("名字已存在");Object.assign(E.player(d,rename),{name,avatar});}))setRename(null);}}/>}
       <Modal open={drawer==="add"} title="添加玩家" typewriter={false} onClose={()=>setDrawer("")} footer={<Button type="primary" disabled={blocked||!name.trim()} onClick={()=>{if(add())setDrawer("");}}>添加</Button>}>
         <Input aria-label="玩家名字" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.nativeEvent.isComposing&&add())setDrawer("");}} placeholder="名字，逗号分隔"/>

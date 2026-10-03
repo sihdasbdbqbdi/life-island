@@ -415,3 +415,16 @@ test('旧存档不编造历史，清楚标识部分计数并拒绝损坏步数',
  const s=E.validateSave(JSON.parse(JSON.stringify(old)));assert(s.players.every(p=>p.walkedSteps===0&&!p.walkedStepsComplete));assert.equal(E.walkingLeaders(s).complete,false);E.roll(s,2);assert.equal(s.players[0].walkedSteps,2);assert.equal(E.walkingLeaders(s).complete,false);E.restartRound(s);assert.equal(s.players[0].walkedSteps,2);assert.equal(s.players[0].walkedStepsComplete,false);
  for(const n of [-1,1.5,Number.MAX_SAFE_INTEGER+1,'5']){const corrupt=E.clone(s);corrupt.players[0].walkedSteps=n;assert.throws(()=>E.validateSave(corrupt),/步数/);}
 });
+
+test('第二轮资金修正只改历史，保留四位未填角色及真实当前资金',()=>{
+ const s=E.fresh();for(let i=0;i<12;i++)E.addPlayer(s,'角色'+i);s.round=3;s.phase='between';s.players.forEach(p=>p.cash=900);s.snapshots=[1,2,3].map(round=>({round,name:'测试',players:s.players.map(p=>({id:p.id,name:p.name,color:p.color,cash:100,change:30,pos:4,points:0}))}));const before=E.clone(s);E.repairRoundCash(s,2,s.players.slice(0,8).map((p,i)=>({id:p.id,cash:200+i})));assert.deepEqual(s.players,before.players);assert.deepEqual(s.snapshots[0],before.snapshots[0]);assert.deepEqual(s.snapshots[2],before.snapshots[2]);const second=s.snapshots[1];assert.equal(second.players.find(p=>p.id===s.players[0].id).change,130);assert(second.players.filter(p=>s.players.slice(8).some(x=>x.id===p.id)).every(p=>p.cash===100));assert.doesNotThrow(()=>E.validateSave(s));E.undoRoundCash(s);assert.deepEqual(s,before);
+});
+test('第二轮缺失可部分补录资金，未知位置和变化为空，持久化后专用撤销可用',()=>{
+ const s=game(3),before=E.clone(s);E.repairRoundCash(s,2,[{id:s.players[0].id,cash:123},{id:s.players[1].id,cash:0}]);const r=s.snapshots.find(r=>r.round===2);assert.equal(r.players.length,2);assert(r.players.every(p=>p.pos===null&&p.change===null));assert.deepEqual(s.players,before.players);const restored=E.validateSave(JSON.parse(JSON.stringify(s)));E.undoRoundCash(restored);assert.deepEqual(restored.snapshots,before.snapshots);assert.deepEqual(restored.players,before.players);
+});
+test('完整结束第二轮保留补录确认金额，自动补齐真实位置和其他角色，不产生重复轮次',()=>{
+ const s=game(3);s.round=2;s.roundCheckpoint.round=1;s.players.forEach(p=>p.points=0);E.repairRoundCash(s,2,[{id:s.players[0].id,cash:123}]);E.finishRound(s);const records=s.snapshots.filter(r=>r.round===2);assert.equal(records.length,1);assert.equal(records[0].players.length,3);assert.equal(records[0].players.find(p=>p.id===s.players[0].id).cash,123);assert.equal(records[0].players.find(p=>p.id===s.players[0].id).pos,s.players[0].pos);assert.equal(s.cashRepairUndo,undefined);assert.doesNotThrow(()=>E.validateSave(s));
+});
+test('非法补录与损坏的未知字段标记被拒绝，不允许正常历史伪装缺失位置',()=>{
+ const s=game(2);assert.throws(()=>E.repairRoundCash(s,1,[{id:s.players[0].id,cash:123}]));assert.throws(()=>E.repairRoundCash(s,2,[{id:'missing',cash:123}]));assert.throws(()=>E.repairRoundCash(s,2,[{id:s.players[0].id,cash:Infinity}]));E.repairRoundCash(s,2,[{id:s.players[0].id,cash:123}]);const corrupt=E.clone(s);delete corrupt.snapshots[0].recovery;assert.throws(()=>E.validateSave(corrupt),/排名/);
+});

@@ -424,12 +424,38 @@ export function next(s) {
   if (!s.queue.length) finishRound(s);
   return s;
 }
+export function repairRoundCash(s,round,changes) {
+ if(round!==2)throw Error("此入口只补录第二轮资金");
+ if(!Array.isArray(changes)||!changes.length)throw Error("请至少填写一位角色的资金");
+ const old=s.snapshots.find(r=>r.round===round);
+ if(s.snapshots.filter(r=>r.round===round).length>1)throw Error("存在重复的第二轮记录，请先导出备份核对");
+ const snapshot=old?clone(old):{round,name:"资金补录",players:[]};
+ const seen=new Set(),confirmed=new Set(snapshot.recovery?.confirmedIds||[]);
+ for(const {id,cash} of changes){
+  if(typeof id!=="string"||seen.has(id)||!Number.isFinite(cash)||Math.abs(cash)>1e12)throw Error("请检查角色与资金");seen.add(id);
+  let row=snapshot.players.find(p=>p.id===id);
+  if(!row){const p=player(s,id);if(!p)throw Error("角色不存在，请勿按编号猜测身份");row={id:p.id,name:p.name,color:p.color,cash:money(cash),change:null,pos:null};snapshot.players.push(row);}
+  else {if(Number.isFinite(row.change))row.change=money(cash-(row.cash-row.change));row.cash=money(cash);}
+  confirmed.add(id);
+ }
+ snapshot.recovery={kind:"manual-cash",confirmedIds:[...confirmed],updatedAt:new Date().toISOString()};
+ snapshot.players.sort((a,b)=>b.cash-a.cash);
+ s.cashRepairUndo={round,before:old?clone(old):null};
+ if(old)s.snapshots[s.snapshots.indexOf(old)]=snapshot;else{s.snapshots.push(snapshot);s.snapshots.sort((a,b)=>a.round-b.round);}
+ return s;
+}
+export function undoRoundCash(s){
+ const undo=s.cashRepairUndo;if(!undo||undo.round!==2)throw Error("没有可撤销的第二轮资金补录");
+ const index=s.snapshots.findIndex(r=>r.round===undo.round);
+ if(undo.before===null){s.snapshots=s.snapshots.filter(r=>r.round!==undo.round);}else if(index>=0)s.snapshots[index]=clone(undo.before);else{s.snapshots.push(clone(undo.before));s.snapshots.sort((a,b)=>a.round-b.round);}
+ delete s.cashRepairUndo;return s;
+}
 export function finishRound(s) {
   if (s.players.some(p => needsScore(s,p.id))) throw Error("还有玩家未录入本轮积分");
   if (s.players.some(p => p.points >= s.rules.cost && !s.held.includes(p.id))) throw Error("本轮还有可用的掷骰次数");
   if (s.pending.length) throw Error("还有烧烧卡没有结算");
   if(s.roundJobs?.length){s.settling=true;return s;}
-  s.snapshots.push({
+  const snapshot={
     round: s.round,
     name: s.roundName,
     players: ranked(s).map((p) => ({
@@ -441,7 +467,15 @@ export function finishRound(s) {
       pos: p.pos,
       change: money(p.cash - p.roundStart),
     })),
-  });
+  };
+  const previous=s.snapshots.find(r=>r.round===s.round);
+  if(previous?.recovery?.kind==="manual-cash"){
+   snapshot.recovery=clone(previous.recovery);
+   for(const id of previous.recovery.confirmedIds){const manual=previous.players.find(p=>p.id===id),row=snapshot.players.find(p=>p.id===id);if(manual&&row){row.cash=manual.cash;row.change=money(row.cash-player(s,id).roundStart);}else if(manual)snapshot.players.push(clone(manual));}
+   snapshot.players.sort((a,b)=>b.cash-a.cash);
+  }
+  if(previous)s.snapshots[s.snapshots.indexOf(previous)]=snapshot;else s.snapshots.push(snapshot);
+  if(s.cashRepairUndo?.round===s.round)delete s.cashRepairUndo;
   s.phase = "between";
   s.awardsPending=true;
   s.queue = [];
@@ -891,12 +925,17 @@ export function validateSave(input) {
             typeof p.id !== "string" ||
             typeof p.name !== "string" ||
             !Number.isFinite(p.cash) ||
-            !Number.isFinite(p.change) ||
-            !Number.isInteger(p.pos),
+            (!Number.isFinite(p.change)&&!(r.recovery?.kind==="manual-cash"&&p.change===null)) ||
+            (!Number.isInteger(p.pos)&&!(r.recovery?.kind==="manual-cash"&&p.pos===null)),
         ),
     )
   )
     throw Error("存档排名损坏");
+  for(const r of s.snapshots)if(r.recovery!==undefined&&(!r.recovery||r.recovery.kind!=="manual-cash"||typeof r.recovery.updatedAt!=="string"||!Array.isArray(r.recovery.confirmedIds)||new Set(r.recovery.confirmedIds).size!==r.recovery.confirmedIds.length||r.recovery.confirmedIds.some(id=>!r.players.some(p=>p.id===id))))throw Error("补录记录损坏");
+  if(s.cashRepairUndo!==undefined){
+   const u=s.cashRepairUndo;if(!u||u.round!==2||(u.before!==null&&(!u.before||u.before.round!==2)))throw Error("资金补录撤销备份损坏");
+   if(u.before!==null)validateSave({...s,cashRepairUndo:undefined,snapshots:[u.before]});
+  }
   if (
     s.result !== null &&
     (!s.result ||
