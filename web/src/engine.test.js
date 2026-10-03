@@ -428,3 +428,6 @@ test('完整结束第二轮保留补录确认金额，自动补齐真实位置�
 test('非法补录与损坏的未知字段标记被拒绝，不允许正常历史伪装缺失位置',()=>{
  const s=game(2);assert.throws(()=>E.repairRoundCash(s,1,[{id:s.players[0].id,cash:123}]));assert.throws(()=>E.repairRoundCash(s,2,[{id:'missing',cash:123}]));assert.throws(()=>E.repairRoundCash(s,2,[{id:s.players[0].id,cash:Infinity}]));E.repairRoundCash(s,2,[{id:s.players[0].id,cash:123}]);const corrupt=E.clone(s);delete corrupt.snapshots[0].recovery;assert.throws(()=>E.validateSave(corrupt),/排名/);
 });
+test('重开当前轮不丢失已补录的历史资金与专用撤销备份，重新游戏清空',()=>{
+ const s=game(2);s.round=3;s.roundCheckpoint.round=2;s.snapshots=[{round:2,name:'原记录',players:s.players.map(p=>({id:p.id,name:p.name,color:p.color,cash:100,change:30,pos:4}))}];s.roundCheckpoint.snapshots=E.clone(s.snapshots);E.repairRoundCash(s,2,[{id:s.players[0].id,cash:222}]);E.restartRound(s);assert.equal(s.snapshots[0].players.find(p=>p.id===s.players[0].id).cash,222);assert(s.cashRepairUndo);assert.doesNotThrow(()=>E.validateSave(s));E.undoRoundCash(s);assert.equal(s.snapshots[0].players.find(p=>p.id===s.players[0].id).cash,100);E.restartGame(s);assert.equal(s.cashRepairUndo,undefined);assert.deepEqual(s.snapshots,[]);
+});

@@ -279,6 +279,10 @@ export function restartRound(s) {
   if(s.phase==="finished")throw Error("本局已结束，请重新开局");
   if(!s.roundCheckpoint) throw Error("此轮没有开始前的备份，可从下一轮使用重来");
   const saved = clone(s.roundCheckpoint), name = s.roundName;
+  // Financial repairs are historical annotations, not board state to rewind.
+  for(const record of s.snapshots.filter(r=>r.recovery?.kind==="manual-cash")){const index=saved.snapshots.findIndex(r=>r.round===record.round);if(index>=0)saved.snapshots[index]=clone(record);else saved.snapshots.push(clone(record));}
+  saved.snapshots.sort((a,b)=>a.round-b.round);
+  if(s.cashRepairUndo)saved.cashRepairUndo=clone(s.cashRepairUndo);
   // Restarting a round rewinds board state, but keeps distance actually walked in this game.
   for(const p of saved.players){const now=player(s,p.id);p.walkedSteps=now?.walkedSteps??0;p.walkedStepsComplete=now?.walkedStepsComplete??false;}
   Object.keys(s).forEach(k => delete s[k]); Object.assign(s, saved);
