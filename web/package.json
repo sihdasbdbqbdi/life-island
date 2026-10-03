@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node --test src/engine.test.js",
+    "test": "node --test src/engine.test.js src/save-store.test.js",
     "preview": "vite preview --host 127.0.0.1",
     "portable": "npm run build && node scripts/portable.mjs"
   },

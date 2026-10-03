@@ -29,29 +29,11 @@ import WalletAmount from "./WalletAmount.jsx";
 import { ROLL_MS } from "./d12.js";
 import { playerColor, activityEntries } from "./presentation.js";
 import { prepareAudio, playDiceSound, playStepSound, playMoneySound, playLossSound, playCardSound, stopAudio } from "./sound.js";
-const KEY = "life-island-save-v1";
+import {SAVE_KEY as KEY,readGame,writeGame,unreadableGame} from "./save-store.js";
 const fmt = (n) =>
   Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { state: E.fresh(), history: [], rev: 0 };
-    const data = JSON.parse(raw);
-    const state = E.validateSave(data);
-    return {
-      state,
-      history: (data.history || []).slice(-20).map(E.validateSave),
-      rev: data.rev || 0,
-    };
-  } catch {
-    return {
-      state: E.fresh(),
-      history: [],
-      rev: 0,
-      error:
-        "原存档无法读取，已保留原数据。请先在“存档”中下载原始备份，再恢复有效存档。",
-    };
-  }
+ try{return readGame(localStorage);}catch{return unreadableGame();}
 }
 function Token({ p, small = false }) {
   return (
@@ -107,7 +89,7 @@ export default function App() {
   const s = presentation || env.state;
   const [tab, setTab] = useState("map"),
     [drawer, setDrawer] = useState(""),
-    [notice, setNotice] = useState(env.error || ""),
+    [notice, setNotice] = useState(env.error || env.warning || ""),
     [saveError, setSaveError] = useState(env.error || ""),
     [remote, setRemote] = useState(false),
     [busy, setBusy] = useState(false),
@@ -145,15 +127,20 @@ export default function App() {
   }, [notice, saveError]);
   function persist(next) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(next));
-      setSaveError("");
-    } catch {
-      setSaveError("浏览器保存失败，请立即导出存档备份。");
+      const saved=writeGame(localStorage,next,ref.current.storedRaw??null);
+      setSaveError("");ref.current=saved;setEnv(saved);
+      if(saved.trimmed)setNotice("进度已保存；为适应浏览器容量，已缩减较早撤销记录。请导出备份。");
+      return true;
+    } catch(error) {
+      if(error.name==="SaveConflictError"){setRemote(true);setNotice(error.message);return false;}
+      setSaveError("浏览器保存失败，最新进度只在当前页面。已暂停后续操作；请先导出当前存档，不要刷新。原始备份是上次成功保存的进度。");
+      // Retain the latest in-memory result for export, while the disk save stays intact.
+      const retained={...next,storedRaw:ref.current.storedRaw,readFailed:ref.current.readFailed};
+      ref.current=retained;setEnv(retained);return false;
     }
-    ref.current = next;
-    setEnv(next);
   }
-  function commit(fn, {clearHistory=false}={}) {
+  function commit(fn, {clearHistory=false,allowRecovery=false}={}) {
+    if((ref.current.readFailed||saveError)&&!allowRecovery){setNotice("请先导出备份并恢复有效存档，暂停游戏操作。");return false;}
     if (remote) {
       setNotice("另一窗口已更改这场游戏，请重新加载后继续。");
       return false;
@@ -166,19 +153,18 @@ export default function App() {
       const after = E.clone(before);
       fn(after);
       delete after.animationPaths;delete after.moneyEvents;
-      persist({
+      return persist({
         state: after,
         history: clearHistory?[]:[...ref.current.history, before].slice(-20),
         rev: ref.current.rev + 1,
       });
-      return true;
     } catch (e) {
       setNotice(e.message);
       return false;
     }
   }
   function undo() {
-    if (!env.history.length || busy) return;
+    if (!env.history.length || busy || remote || saveError || ref.current.readFailed) return;
     const history = [...env.history],
       state = history.pop();
     persist({ state, history, rev: env.rev + 1 });
@@ -203,14 +189,14 @@ export default function App() {
     if(groups.length)setMoneyFlight(previous=>[...previous,{id:crypto.randomUUID(),groups}]);
   }
   async function animateAction(fn, rollValue=null) {
-    if(busyRef.current||remote)return false;
+    if(busyRef.current||remote||saveError||ref.current.readFailed)return false;
     const before=E.clone(ref.current.state),after=E.clone(before);
     try{fn(after);}catch(error){setNotice(error.message);return false;}
     const paths=after.animationPaths||[];const moneyEvents=after.moneyEvents||[];delete after.animationPaths;delete after.moneyEvents;
     const audioReady=sound?prepareAudio():Promise.resolve(null);
     // 先保存完整结算；动画只影响展示。刷新不会重复扣分或重复领奖。
     busyRef.current=true;setBusy(true);setCardOpen(false);setPresentation(before);
-    persist({state:after,history:[...ref.current.history,before].slice(-20),rev:ref.current.rev+1});
+    if(!persist({state:after,history:[...ref.current.history,before].slice(-20),rev:ref.current.rev+1})){setPresentation(null);setBusy(false);busyRef.current=false;setCardOpen(true);return false;}
     const delay=ms=>new Promise(resolve=>{timer.current=setTimeout(resolve,ms);});
     if(rollValue!==null){
       setDie(rollValue);setStage("rolling");
@@ -290,8 +276,9 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function exportSave() {
+    if(ref.current.readFailed){if(ref.current.storedRaw)download(ref.current.storedRaw,"原始存档备份.json");else setNotice("当前没有有效进度可导出，浏览器原始数据未改动。");return;}
     download(
-      { app: "人生小岛", exportedAt: new Date().toISOString(), state: s },
+      { app: "人生小岛", exportedAt: new Date().toISOString(), state: ref.current.state },
       `人生小岛-第${s.round}轮-${new Date().toISOString().slice(0, 10)}.json`,
     );
   }
@@ -311,7 +298,7 @@ export default function App() {
             commit((d) => {
               Object.keys(d).forEach((k) => delete d[k]);
               Object.assign(d, incoming);
-            })
+            },{allowRecovery:true})
           ) {
             setDrawer("");
             setCardOpen(true);
@@ -323,7 +310,7 @@ export default function App() {
       setNotice(`无法导入：${err.message}`);
     }
   }
-  const blocked = busy || remote || sorting;
+  const blocked = busy || remote || sorting || !!saveError || !!env.readFailed;
   const activity=activityEntries(s.log);
   const remaining=p&&!s.held.includes(p.id)?Math.floor(p.points/s.rules.cost):0;
   const nextPlayer=E.player(s,s.queue.find(id=>id!==p?.id&&!s.held.includes(id)&&(E.needsScore(s,id)||E.player(s,id)?.points>=s.rules.cost)));
@@ -393,7 +380,7 @@ export default function App() {
       </Button>
       {s.roundCheckpoint && s.phase!=="finished" && <Button size="small" disabled={blocked} onClick={()=>{setDrawer("");setConfirm({title:"重新开始本轮？",body:"恢复本轮开始前的钱、积分和位置，重新排序。可以撤销。",action:()=>{if(commit(E.restartRound)){setSorting(true);setTab("map");setCardOpen(true);setDrawer("");}}});}}>重新开始本轮</Button>}
       <Button size="small" disabled={blocked} onClick={()=>{setDrawer("");setConfirm({title:"重新游戏？",body:"删除本场所有已添加角色，并清空资金、积分、位置、轮次、排名、卡牌效果及撤销记录。需要重新添加角色。此操作无法撤销，请先导出存档备份。",action:()=>{if(commit(E.restartGame,{clearHistory:true})){setAwardsReview(false);setSorting(false);setTab("map");setDrawer("");setCardOpen(false);}}});}}>重新游戏</Button>
-      <Button size="small" disabled={blocked} onClick={() => setDrawer("save")}>
+      <Button size="small" disabled={busy||remote||sorting} onClick={() => setDrawer("save")}>
         存档
       </Button>
       <Button
@@ -426,9 +413,9 @@ export default function App() {
       </header>
       {remote && (
         <div className="alert">
-          另一窗口已更新本场游戏。为避免覆盖，请先重新加载。
-          <Button size="small" onClick={() => location.reload()}>
-            重新加载
+          另一窗口已更新本场游戏。重新加载前会先导出当前页面备份，避免丢失未保存进度。
+          <Button size="small" onClick={() => {exportSave();location.reload();}}>
+            备份后重新加载
           </Button>
         </div>
       )}
@@ -440,9 +427,7 @@ export default function App() {
           </Button>
           <Button
             size="small"
-            onClick={() =>
-              download(localStorage.getItem(KEY) || "", "原始存档备份.json")
-            }
+            onClick={() => {try{const raw=ref.current.readFailed?ref.current.storedRaw:localStorage.getItem(KEY);if(raw)download(raw,"原始存档备份.json");else setNotice("没有可读取的原始备份，请先导出当前存档。");}catch{setNotice("浏览器不允许读取原始备份，请先导出当前存档。");}}}
           >
             下载原始备份
           </Button>
@@ -779,7 +764,7 @@ export default function App() {
           <Button type="primary" block onClick={exportSave}>
             导出游戏存档
           </Button>
-          <Button block disabled={blocked} onClick={() => file.current.click()}>
+          <Button block disabled={busy||remote||sorting} onClick={() => file.current.click()}>
             从文件恢复进度
           </Button>
           <input
