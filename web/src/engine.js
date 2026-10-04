@@ -271,6 +271,10 @@ export function restartGame(s) {
  Object.keys(s).forEach(k=>delete s[k]);Object.assign(s,fresh());
  return s;
 }
+export function endGameEarly(s){
+ if(!s.players.length||s.phase==="finished")throw Error("当前没有可结束的游戏");
+ s.phase="finished";s.awardsPending=false;s.endedEarly=true;s.queue=[];s.pending=[];s.roundJobs=[];s.settling=false;s.acted=false;s.result=null;return s;
+}
 export function finishGame(s){
  if(s.phase!=="between"||s.pending.length||s.settling)throw Error("请先完成本轮结算");
  s.phase="finished";s.awardsPending=false;return s;

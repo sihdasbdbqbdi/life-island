@@ -4,7 +4,7 @@ import {playerColor} from './presentation.js';
 import RankMedal from './RankMedal.jsx';
 import './awards.css';
 const fmt=n=>Number(n).toLocaleString('zh-CN',{maximumFractionDigits:2});
-export default function Awards({s,Pawn,onContinue,onDice,onFinish,onClose,disabled=false}){
+export default function Awards({s,Pawn,onContinue,onDice,onFinish,onClose,onRecords,disabled=false}){
  const dialog=useRef(null),rankings=ranked(s),final=s.phase==='finished';
  useEffect(()=>{const el=dialog.current;const previous=document.activeElement;el.showModal();return()=>{el.close();previous?.focus?.();};},[]);
  return <dialog ref={dialog} className="awards-dialog" aria-labelledby="awards-title" onCancel={e=>{e.preventDefault();if(final)onClose();}}>
@@ -19,6 +19,6 @@ export default function Awards({s,Pawn,onContinue,onDice,onFinish,onClose,disabl
    <div className="award-crowd" aria-label="其他玩家鼓掌">{rankings.slice(3).map((p,i)=><div className="clapping-character" key={p.id} style={{'--clap-delay':`${-i*.17}s`}}><div className="crowd-pawn"><Pawn p={p}/></div><span style={{color:playerColor(p)}}>{p.name}</span></div>)}</div>
   </div>
   <table className="award-scores"><thead><tr><th>排名</th><th>玩家</th><th>总财富</th><th>本轮</th></tr></thead><tbody>{rankings.map((p,i)=>{const change=money(p.cash-p.roundStart);return <tr key={p.id}><td><RankMedal rank={i+1}/></td><th scope="row" style={{color:playerColor(p)}}>{p.name}</th><td>{fmt(p.cash)}$</td><td className={change<0?'loss':'gain'}>{change>0?'+':''}{fmt(change)}$</td></tr>;})}</tbody></table>
-  <footer className="award-actions">{final?<button autoFocus onClick={onClose}>关闭</button>:<><button className="award-continue" autoFocus disabled={disabled} onClick={onContinue}>继续</button><button disabled={disabled} onClick={onFinish}>结束</button></>}</footer>
+  <footer className="award-actions"><button disabled={disabled} onClick={onRecords}>保存本回合记录</button>{final?<button autoFocus onClick={onClose}>关闭</button>:<><button className="award-continue" autoFocus disabled={disabled} onClick={onContinue}>继续</button><button disabled={disabled} onClick={onFinish}>结束</button></>}</footer>
  </dialog>;
 }

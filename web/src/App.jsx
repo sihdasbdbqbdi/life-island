@@ -19,6 +19,8 @@ import Awards from "./Awards.jsx";
 import AvatarEditor from "./AvatarEditor.jsx";
 import Select from "./ViewportSelect.jsx";
 import WalkingLeader from "./WalkingLeader.jsx";
+import GameRecords from "./GameRecords.jsx";
+import {saveBrowser,watchStore} from "./browser-store.js";
 import RoundCashRecovery from "./RoundCashRecovery.jsx";
 import CardDraw from "./CardDraw.jsx";
 import Dice from "./Dice.jsx";
@@ -30,7 +32,7 @@ import WalletAmount from "./WalletAmount.jsx";
 import { ROLL_MS } from "./d12.js";
 import { playerColor, activityEntries } from "./presentation.js";
 import { prepareAudio, playDiceSound, playStepSound, playMoneySound, playLossSound, playCardSound, stopAudio } from "./sound.js";
-import {SAVE_KEY as KEY,readGame,writeGame,unreadableGame} from "./save-store.js";
+import {SAVE_KEY as KEY,readGame,writeGame,unreadableGame,unpackSave} from "./save-store.js";
 const fmt = (n) =>
   Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 function load() {
@@ -62,8 +64,8 @@ function Field({ label, children, hint }) {
     </label>
   );
 }
-export default function App() {
-  const [env, setEnv] = useState(load),
+export default function App({initial}) {
+  const [env, setEnv] = useState(()=>initial||load()),
     ref = useRef(env);
   ref.current = env;
   const [presentation,setPresentation]=useState(null),[motion,setMotion]=useState(null),[stage,setStage]=useState("");
@@ -74,6 +76,8 @@ export default function App() {
   const mobileWalletRows=useRef({});
   useEffect(()=>{const mq=matchMedia("(max-width: 600px)");const update=()=>setMobile(mq.matches);mq.addEventListener("change",update);return()=>mq.removeEventListener("change",update);},[]);
   const [rename,setRename]=useState(null);
+  const [records,setRecords]=useState(null),[saving,setSaving]=useState(false);
+  const pendingSave=useRef(null);
   const [cashRecovery,setCashRecovery]=useState(false);
   const [awardsReview,setAwardsReview]=useState(false);
   const [dicePressed,setDicePressed]=useState(false),[throwPower,setThrowPower]=useState(0),[throwAngle,setThrowAngle]=useState(null);
@@ -128,26 +132,27 @@ export default function App() {
     }
   }, [notice, saveError]);
   function persist(next) {
-    try {
-      const saved=writeGame(localStorage,next,ref.current.storedRaw??null);
-      setSaveError("");ref.current=saved;setEnv(saved);
-      if(saved.trimmed)setNotice("进度已保存；为适应浏览器容量，已缩减较早撤销记录。请导出备份。");
-      return true;
-    } catch(error) {
-      if(error.name==="SaveConflictError"){setRemote(true);setNotice(error.message);return false;}
-      setSaveError("浏览器保存失败，最新进度只在当前页面。已暂停后续操作；请先导出当前存档，不要刷新。原始备份是上次成功保存的进度。");
-      // Retain the latest in-memory result for export, while the disk save stays intact.
-      const retained={...next,storedRaw:ref.current.storedRaw,readFailed:ref.current.readFailed};
-      ref.current=retained;setEnv(retained);return false;
-    }
+    if(pendingSave.current)return false;
+    const expected=ref.current.storedRaw??null;
+    ref.current={...next,storedRaw:expected};setEnv(ref.current);setSaving(true);
+    const promise=saveBrowser(next,expected).then(saved=>{
+      if(!alive.current)return false;
+      setSaveError("");ref.current=saved;setEnv(saved);return true;
+    }).catch(error=>{
+      if(error.name==="SaveConflictError")setRemote(true);
+      setSaveError("保存失败，最新进度只在当前页面。请先导出当前存档，不要刷新。"+error.message);return false;
+    }).finally(()=>{pendingSave.current=null;if(alive.current)setSaving(false);});
+    pendingSave.current=promise;return true;
   }
+  useEffect(()=>watchStore(()=>setRemote(true)),[]);
+  useEffect(()=>{const guard=e=>{if(pendingSave.current||saveError){e.preventDefault();e.returnValue="";}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[saveError]);
   function commit(fn, {clearHistory=false,allowRecovery=false}={}) {
     if((ref.current.readFailed||saveError)&&!allowRecovery){setNotice("请先导出备份并恢复有效存档，暂停游戏操作。");return false;}
     if (remote) {
       setNotice("另一窗口已更改这场游戏，请重新加载后继续。");
       return false;
     }
-    if (busyRef.current) {
+    if (busyRef.current || pendingSave.current) {
       return false;
     }
     try {
@@ -166,7 +171,7 @@ export default function App() {
     }
   }
   function undo() {
-    if (!env.history.length || busy || remote || saveError || ref.current.readFailed) return;
+    if (!env.history.length || pendingSave.current || busy || remote || saveError || ref.current.readFailed) return;
     const history = [...env.history],
       state = history.pop();
     persist({ state, history, rev: env.rev + 1 });
@@ -191,7 +196,7 @@ export default function App() {
     if(groups.length)setMoneyFlight(previous=>[...previous,{id:crypto.randomUUID(),groups}]);
   }
   async function animateAction(fn, rollValue=null) {
-    if(busyRef.current||remote||saveError||ref.current.readFailed)return false;
+    if(pendingSave.current||busyRef.current||remote||saveError||ref.current.readFailed)return false;
     const before=E.clone(ref.current.state),after=E.clone(before);
     try{fn(after);}catch(error){setNotice(error.message);return false;}
     const paths=after.animationPaths||[];const moneyEvents=after.moneyEvents||[];delete after.animationPaths;delete after.moneyEvents;
@@ -199,6 +204,7 @@ export default function App() {
     // 先保存完整结算；动画只影响展示。刷新不会重复扣分或重复领奖。
     busyRef.current=true;setBusy(true);setCardOpen(false);setPresentation(before);
     if(!persist({state:after,history:[...ref.current.history,before].slice(-20),rev:ref.current.rev+1})){setPresentation(null);setBusy(false);busyRef.current=false;setCardOpen(true);return false;}
+    if(!(await pendingSave.current)){setPresentation(null);setBusy(false);busyRef.current=false;setCardOpen(true);return false;}
     const delay=ms=>new Promise(resolve=>{timer.current=setTimeout(resolve,ms);});
     if(rollValue!==null){
       setDie(rollValue);setStage("rolling");
@@ -289,8 +295,8 @@ export default function App() {
     e.target.value = "";
     if (!f) return;
     try {
-      if (f.size > 5000000) throw Error("存档文件过大");
-      const incoming = E.validateSave(JSON.parse(await f.text()));
+      if (f.size > 50000000) throw Error("存档文件过大");
+      const incoming = E.validateSave(unpackSave(JSON.parse(await f.text())));
       setConfirm({
         title: "载入这份存档？",
         body: `${incoming.players.length} 位玩家 · 第 ${incoming.round} 轮。当前进度会先自动下载备份，载入后也可以撤销。`,
@@ -312,21 +318,21 @@ export default function App() {
       setNotice(`无法导入：${err.message}`);
     }
   }
-  const blocked = busy || remote || sorting || !!saveError || !!env.readFailed;
+  const blocked = saving || busy || remote || sorting || !!saveError || !!env.readFailed;
   const activity=activityEntries(s.log);
   const remaining=p&&!s.held.includes(p.id)?Math.floor(p.points/s.rules.cost):0;
   const nextPlayer=E.player(s,s.queue.find(id=>id!==p?.id&&!s.held.includes(id)&&(E.needsScore(s,id)||E.player(s,id)?.points>=s.rules.cost)));
   const orderList=<div className="order-list">{(s.order.length?s.order:s.players.map(t=>t.id)).map((id,i)=>{const t=E.player(s,id);if(!t)return null;const done=s.round>0&&!E.needsScore(s,id)&&t.points<s.rules.cost&&t.id!==p?.id;return <div key={id} className={`order-chip ${id===p?.id?"selected":""} ${done?"done":""}`}><span className="order-index">{i+1}</span><Token p={t} small/><span style={{color:playerColor(t)}}>{t.name}</span><small>{id===p?.id?"当前":done?"完成":E.needsScore(s,id)?"待录入":`${Math.floor(t.points/s.rules.cost)}次`}</small></div>;})}</div>;
   const flowPanel=<section className="flow-panel" aria-label="出场顺序与当前玩家">
-    <div className="heading-inline"><h3>{p?"当前玩家":s.phase==="finished"?"本局结束":s.phase==="between"?"本轮完成":"出场顺序"}</h3><span className="phase-tag">{stage==="rolling"?"掷骰中":stage==="moving"?"移动中":pending?"待结算":p&&E.needsScore(s)?"待录入":p?remaining?"进行中":"已用完":""}</span></div>
-    {!mobile&&(p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本轮最后一位</strong>}</div></>:<p className="muted">{s.phase==="finished"?"成绩已保存":s.phase==="between"?"余分已保留":"每轮随机排序"}</p>)}
+    <div className="heading-inline"><h3>{p?"当前玩家":s.phase==="finished"?"本局结束":s.phase==="between"?"本回合完成":"出场顺序"}</h3><span className="phase-tag">{stage==="rolling"?"掷骰中":stage==="moving"?"移动中":pending?"待结算":p&&E.needsScore(s)?"待录入":p?remaining?"进行中":"已用完":""}</span></div>
+    {!mobile&&(p?<><div key={p.id+"-"+s.round+"-"+E.needsScore(s)} className="active-player turn-spotlight"><Token p={p}/><div><strong style={{color:playerColor(p)}}>{p.name}</strong><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p></div></div><div className="next-player"><span>下一位</span>{nextPlayer?<strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong>:<strong>本回合最后一位</strong>}</div></>:<p className="muted">{s.phase==="finished"?"成绩已保存":s.phase==="between"?"余分已保留":"每轮随机排序"}</p>)}
     {mobile&&p&&<><div className="mobile-player-line" key={p.id} ref={el=>{mobileWalletRows.current[p.id]=el;}}><Token p={p}/><strong className="mobile-player-name" style={{color:playerColor(p)}}>{p.name}</strong><WalletAmount value={p.cash} reduced={reduced} arrivalDelay={moneyFlight.some(batch=>batch.groups.some(g=>g.playerId===p.id))?810:0}/></div><div className="mobile-turn-line"><p className="remaining-rolls">剩 <b>{remaining}</b> 次 <span>· 余 {p.points%s.rules.cost} 分</span></p><button className="mobile-order-toggle" onClick={()=>setDrawer("order")} aria-label="查看出场顺序">{nextPlayer?<>下一位 <strong style={{color:playerColor(nextPlayer)}}>{nextPlayer.name}</strong></>:"最后一位"}<span aria-hidden="true"> ›</span></button></div></>}
-    {mobile&&!p&&<div className="mobile-round-line"><strong>{s.phase==="finished"?"本局结束":s.phase==="between"?"本轮结束":"准备开局"}</strong><button className="mobile-order-toggle" onClick={()=>setDrawer("order")}>出场顺序 ›</button></div>}
+    {mobile&&!p&&<div className="mobile-round-line"><strong>{s.phase==="finished"?"本局结束":s.phase==="between"?"本回合结束":"准备开局"}</strong><button className="mobile-order-toggle" onClick={()=>setDrawer("order")}>出场顺序 ›</button></div>}
     {!mobile&&orderList}
 
   </section>;
   const activityPanel=<section className="activity-panel"><div className="heading-inline"><h3>动态</h3><Button type="text" size="small" onClick={()=>setDrawer("log")}>全部</Button></div><button className="mobile-latest" onClick={()=>setDrawer("log")} aria-label="查看动态">{activity.length?<ColoredText text={activity[0].text} players={s.players}/>:"暂无动态"}<span aria-hidden="true"> ›</span></button><div className="activity-list" aria-live="polite">{activity.slice(0,3).map(l=><p className="activity" key={l.id}><ColoredText text={l.text} players={s.players}/></p>)}{!activity.length&&<p className="muted">暂无动态</p>}</div></section>;
-  const rankAdd=<button className="add-player-icon" aria-label="添加玩家" title={s.phase==="playing"?"本轮结束后添加玩家":"添加玩家"} disabled={blocked||s.phase==="playing"||s.phase==="finished"} onClick={()=>setDrawer("add")}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></button>;
+  const rankAdd=<button className="add-player-icon" aria-label="添加玩家" title={s.phase==="playing"?"本回合结束后添加玩家":"添加玩家"} disabled={blocked||s.phase==="playing"||s.phase==="finished"} onClick={()=>setDrawer("add")}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></button>;
   const leaderboard=<section className="leaderboard">
                 <div className="sidebar-heading">
                   <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M3 24V13h7v11m0 0V5h8v19m0 0V17h7v7M2 24h24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round"/></svg>
@@ -367,6 +373,8 @@ export default function App() {
                 )}
 
               </section>;
+  const showRecords=()=>{setTab("map");setDrawer("");setRecords(E.clone(ref.current.state));};
+  const finishSession=early=>{setDrawer("");setConfirm({title:early?"提前结束本局？":"结束本局？",body:early?"保留当前资金和位置作为最终结果；未完成的回合不会记作完整回合。之后先保存图片与存档，再选择是否清理。":"先保留最终结果并保存图片与存档，再选择是否清理本局。",action:async()=>{if(commit(early?E.endGameEarly:E.finishGame)&&await pendingSave.current){setAwardsReview(false);showRecords();}}});};
   const openRound = () => {
     if(commit(d=>E.startRound(d))) {setSorting(true);setTab("map");setCardOpen(true);}
   };
@@ -380,8 +388,10 @@ export default function App() {
       >
         撤销
       </Button>
-      {s.roundCheckpoint && s.phase!=="finished" && <Button size="small" disabled={blocked} onClick={()=>{setDrawer("");setConfirm({title:"重新开始本轮？",body:"恢复本轮开始前的钱、积分和位置，重新排序。可以撤销。",action:()=>{if(commit(E.restartRound)){setSorting(true);setTab("map");setCardOpen(true);setDrawer("");}}});}}>重新开始本轮</Button>}
+      {s.roundCheckpoint && s.phase!=="finished" && <Button size="small" disabled={blocked} onClick={()=>{setDrawer("");setConfirm({title:"重新开始本回合？",body:"恢复本回合开始前的钱、积分和位置，重新排序。可以撤销。",action:()=>{if(commit(E.restartRound)){setSorting(true);setTab("map");setCardOpen(true);setDrawer("");}}});}}>重新开始本回合</Button>}
       <Button size="small" disabled={blocked} onClick={()=>{setDrawer("");setConfirm({title:"重新游戏？",body:"删除本场所有已添加角色，并清空资金、积分、位置、轮次、排名、卡牌效果及撤销记录。需要重新添加角色。此操作无法撤销，请先导出存档备份。",action:()=>{if(commit(E.restartGame,{clearHistory:true})){setAwardsReview(false);setSorting(false);setTab("map");setDrawer("");setCardOpen(false);}}});}}>重新游戏</Button>
+      <Button size="small" disabled={blocked||!s.players.length||s.phase==="playing"} onClick={showRecords}>保存图片</Button>
+      <Button size="small" disabled={blocked||!s.players.length||s.phase==="finished"} onClick={()=>finishSession(true)}>提前结束本局</Button>
       <Button size="small" disabled={busy||remote||sorting} onClick={() => setDrawer("save")}>
         存档
       </Button>
@@ -408,7 +418,7 @@ export default function App() {
         </div>
         <div className="header-right">
           <span className={`save-status ${saveError ? "warning" : ""}`}>
-            {saveError ? "存档需备份" : "本机已保存"}
+            {saveError ? "存档需备份" : saving ? "正在保存…" : "本机已保存"}
           </span>
           {mobile?<button className="mobile-more" onClick={()=>setDrawer("more")}>更多 <span aria-hidden="true">•••</span></button>:topActions}
         </div>
@@ -429,7 +439,7 @@ export default function App() {
           </Button>
           <Button
             size="small"
-            onClick={() => {try{const raw=ref.current.readFailed?ref.current.storedRaw:localStorage.getItem(KEY);if(raw)download(raw,"原始存档备份.json");else setNotice("没有可读取的原始备份，请先导出当前存档。");}catch{setNotice("浏览器不允许读取原始备份，请先导出当前存档。");}}}
+            onClick={() => {try{const raw=ref.current.storedRaw??localStorage.getItem(KEY);if(raw)download(raw,"原始存档备份.json");else setNotice("没有可读取的原始备份，请先导出当前存档。");}catch{setNotice("浏览器不允许读取原始备份，请先导出当前存档。");}}}
           >
             下载原始备份
           </Button>
@@ -475,7 +485,7 @@ export default function App() {
                       ? "人生地图"
                       : s.phase === "playing"
                         ? s.roundName
-                        : s.phase==="finished"?"本局结束":"本轮结束"}
+                        : s.phase==="finished"?"本局结束":"本回合结束"}
                   </h2>
                 </div>
                 <div className="round-tools"><button className="dice-selector" disabled={blocked||s.phase==="playing"} title={s.phase==="playing"?"下轮开始前可切换":"切换骰子"} onClick={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})}>{s.rules.diceSides||12} 面骰 ↻</button><div className={`round-pill ${s.round?"repeat-round":""}`}>
@@ -489,7 +499,7 @@ export default function App() {
                       {p
                         ? p.name
                         : s.phase === "between"
-                          ? "本轮结束"
+                          ? "本回合结束"
                           : s.phase==="finished"?"本局结束":"准备开局"}
                     </strong>
                     <button className="dice-hitbox" aria-label="掷骰子" disabled={blocked||s.phase!=="playing"||E.needsScore(s)||!!pending||remaining<1} onPointerDown={beginCharge} onPointerMove={moveCharge} onPointerUp={releaseCharge} onPointerCancel={cancelCharge} onLostPointerCapture={cancelCharge} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();cancelCharge();}else if(e.key===' '||e.key==='Enter'){e.preventDefault();if(!e.repeat)beginCharge(e);}}} onKeyUp={e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseCharge();}}} onBlur={cancelCharge} onContextMenu={e=>e.preventDefault()} onClick={e=>{if(e.detail===0&&Date.now()-lastRelease.current>400){setThrowPower(0);setThrowAngle(null);throwDice();}}}><span className="dice-wrap">
@@ -534,7 +544,7 @@ export default function App() {
                     ) : (
                       <>
                         <p className="center-copy">{stage==="rolling"?`${s.rules.diceSides||12} 面骰`:stage==="moving"?"前进中…":s.acted?(s.result?.skipped?s.result.description||"暂停一次":`前进 ${s.result?.steps} 格`):`${s.rules.diceSides||12} 面骰`}</p>
-                        {busy?<p className="dice-hint">{stage==="rolling"?"掷骰中…":"移动中…"}</p>:pending?<Button type="primary" size="large" onClick={()=>setCardOpen(true)}>结算烧烧卡</Button>:remaining>0?<p className="dice-hint">按住蓄力 · 拖动瞄准</p>:<Button type="primary" size="large" disabled={blocked} onClick={()=>animateAction(E.next)}>{nextPlayer?"下一位":"本轮结算"}</Button>}
+                        {busy?<p className="dice-hint">{stage==="rolling"?"掷骰中…":"移动中…"}</p>:pending?<Button type="primary" size="large" onClick={()=>setCardOpen(true)}>结算烧烧卡</Button>:remaining>0?<p className="dice-hint">按住蓄力 · 拖动瞄准</p>:<Button type="primary" size="large" disabled={blocked} onClick={()=>animateAction(E.next)}>{nextPlayer?"下一位":"本回合结算"}</Button>}
 
                       </>
                     )}
@@ -646,14 +656,14 @@ export default function App() {
                     <h3>第 {r.round} 轮</h3>
                     <span>{r.name}</span>
                   </div>
-                  {r.recovery&&<p className="muted">资金已手动补录；缺少依据的位置和本轮变化显示 —。</p>}
+                  {r.recovery&&<p className="muted">资金已手动补录；缺少依据的位置和本回合变化显示 —。</p>}
                   {s.cashRepairUndo?.round===r.round&&<Button size="small" disabled={blocked} onClick={()=>setConfirm({title:"撤销上次资金补录？",body:"恢复补录前的第二轮历史记录，当前余额和其他轮次不变。",action:()=>commit(E.undoRoundCash)})}>撤销上次资金补录</Button>}
                   <table>
                     <thead>
                       <tr>
                         <th>排名 / 玩家</th>
                         <th>资金</th>
-                        <th>本轮变化</th>
+                        <th>本回合变化</th>
                         <th>位置</th>
                       </tr>
                     </thead>
@@ -731,6 +741,7 @@ export default function App() {
           {drawer==="more"&&<div className="mobile-menu">{topActions}<Button onClick={()=>{setTab("history");setDrawer("");}}>每轮排名</Button><Button onClick={()=>{setTab("cards");setDrawer("");}}>烧烧卡图鉴</Button><Button onClick={()=>setDrawer("rules")}>玩法说明</Button></div>}
         </Drawer>
       </>}
+      {records&&<GameRecords state={records} onClose={()=>setRecords(null)} onClean={()=>setConfirm({title:"清理已保存的本局？",body:"删除本局角色、资金、回合、头像和撤销历史，需要重新添加角色。全局设置保留，操作不可撤销。",action:async()=>{if(commit(d=>{const rules=E.clone(d.rules);E.restartGame(d);d.rules=rules;},{clearHistory:true})&&await pendingSave.current){setRecords(null);setAwardsReview(false);setCardOpen(false);setNotice("本局已清理，可重新添加角色。");}}})}/>}
       {cashRecovery&&<RoundCashRecovery state={s} disabled={blocked} onClose={()=>setCashRecovery(false)} onSave={changes=>{exportSave();if(commit(d=>E.repairRoundCash(d,2,changes))){setCashRecovery(false);setNotice("第二轮资金记录已补录，可撤销；当前余额未改变。");return true;}return false;}}/>}
       {rename&&s.players.some(t=>t.id===rename)&&<AvatarEditor key={rename} player={s.players.find(t=>t.id===rename)} disabled={blocked} onClose={()=>setRename(null)} onSave={(name,avatar)=>{if(commit(d=>{if(!name||name.length>16)throw Error("名字最多16个字");if(d.players.some(t=>t.id!==rename&&t.name===name))throw Error("名字已存在");Object.assign(E.player(d,rename),{name,avatar});}))setRename(null);}}/>}
       <Modal open={drawer==="add"} title="添加玩家" typewriter={false} onClose={()=>setDrawer("")} footer={<Button type="primary" disabled={blocked||!name.trim()} onClick={()=>{if(add())setDrawer("");}}>添加</Button>}>
@@ -765,7 +776,7 @@ export default function App() {
           <h3>
             {s.players.length} 位玩家 · 第 {s.round} 轮
           </h3>
-          <p>进度自动保存在当前浏览器。换电脑、清理浏览器前，请先下载存档。</p>
+          <p role="status">{saving?"正在保存，请勿关闭页面":env.savedAt?`最近成功保存：${new Date(env.savedAt).toLocaleString("zh-CN")}`:"尚无保存记录"} · {env.backend||"兼容存储"}</p><p>进度自动保存在当前浏览器。换电脑、清理浏览器前，请先下载存档。</p>
           <Button type="primary" block onClick={exportSave}>
             导出游戏存档
           </Button>
@@ -884,7 +895,7 @@ export default function App() {
         <p>{confirm?.body}</p>
       </Modal>
       {moneyFlight.map(batch=><MoneyFlights key={batch.id} batch={batch} rows={mobile&&drawer!=="rank"?mobileWalletRows:walletRows} reduced={reduced} sound={sound} onDone={()=>setMoneyFlight(all=>all.filter(b=>b.id!==batch.id))}/>)}
-      {((s.phase==="between"&&s.awardsPending)||awardsReview)&&!busy&&!moneyFlight.length&&<Awards s={s} Pawn={Pawn} disabled={blocked} onDice={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})} onContinue={openRound} onFinish={()=>commit(E.finishGame)} onClose={()=>setAwardsReview(false)}/>}
+      {((s.phase==="between"&&s.awardsPending)||awardsReview)&&!confirm&&!records&&!busy&&!moneyFlight.length&&<Awards s={s} Pawn={Pawn} disabled={blocked} onDice={()=>commit(d=>{const list=[6,12,24];d.rules.diceSides=list[(list.indexOf(d.rules.diceSides||12)+1)%3];})} onContinue={openRound} onFinish={()=>finishSession(false)} onRecords={showRecords} onClose={()=>setAwardsReview(false)}/>}
       {s.settling&&!busy&&<RoundSettlement s={s} disabled={blocked} onConfirm={answers=>animateAction(d=>E.settleRound(d,answers))}/>}
       {(sorting || (s.phase==="playing" && p && E.needsScore(s) && !busy)) && <TurnOverlay key={`${s.round}-${p?.id}-${sorting}`} player={p} players={s.order.map(id=>E.player(s,id))} sorting={sorting} carry={p?.points||0} disabled={remote} onConfirm={value=>commit(d=>E.enterScore(d,value))}/>}
       {notice && (
@@ -1126,7 +1137,7 @@ function PlayerManager({ s, commit, setNotice, confirm, blocked }) {
         保存规则
       </Button>
       {s.phase === "playing" && (
-        <small>为保证本轮一致，轮次结束后可修改基础规则。</small>
+        <small>为保证本回合一致，轮次结束后可修改基础规则。</small>
       )}
     </div>
   );
@@ -1161,7 +1172,7 @@ function CardResolver({ pending, s, onResolve, onCancel }) {
     c.kind === "payOrSkip"
       ? [
           { key: "pay", label: "交50元电费" },
-          { key: "skip", label: "暂停本轮，积分保留" },
+          { key: "skip", label: "暂停本回合，积分保留" },
         ]
       : c.kind === "duel"
         ? [
@@ -1378,7 +1389,7 @@ function Rules({ s }) {
       <h3>一轮旅行怎么开始</h3>
       <ol>
         <li>添加玩家，每轮开始先随机排序。</li>
-        <li>轮到玩家时输入本轮新增积分，余分自动累计；用完次数后再换人。</li>
+        <li>轮到玩家时输入本回合新增积分，余分自动累计；用完次数后再换人。</li>
         <li>每轮开始前可切换6、12、24面骰，每次消耗 {s.rules.cost} 分；不足一次的余分留到下一轮。</li>
         <li>所有次数用完后结算，保存排名和位置；下一轮从当前位置继续。重来当前轮会恢复轮初状态并重新排序。</li>
       </ol>
@@ -1397,18 +1408,18 @@ function Rules({ s }) {
         <li>
           “第二富有”按玩家排序第二位，资金并列随机排序。“前五名”同样先确定名单。
         </li>
-        <li>“上一位／下一位”按本轮最初随机顺序，首尾相接。</li>
+        <li>“上一位／下一位”按本回合最初随机顺序，首尾相接。</li>
         <li>
-          “失去一次行动”扣一次掷骰积分、不移动；“暂停一回合”立即结束本轮行动，所有积分保留到下一轮。
+          “失去一次行动”扣一次掷骰积分、不移动；“暂停一回合”立即结束本回合行动，所有积分保留到下一轮。
         </li>
         <li>
-          AI：本轮下一次掷骰及连带卡牌收入减半，轮末失效。PPT：接下来两次掷骰及连带卡牌的每笔收入＋20，可跨轮。
+          AI：本回合下一次掷骰及连带卡牌收入减半，轮末失效。PPT：接下来两次掷骰及连带卡牌的每笔收入＋20，可跨轮。
         </li>
         <li>
           外部收入包括格子与奖金，参与倍率与持续状态；玩家间转账原额转移；AI和PPT在生效行动中也影响收到的转账，付款额不变。多个倍率相乘；跳过收入优先。
         </li>
         <li>
-          “上次收入翻倍”补发与上次收入相同的金额；“误删工资条”扣回本轮已获得的收入，之后收入照常，不追溯收款方。
+          “上次收入翻倍”补发与上次收入相同的金额；“误删工资条”扣回本回合已获得的收入，之后收入照常，不追溯收款方。
         </li>
         <li>
           有奖励的移动会触发落点烧烧卡；“后退6格不获取金钱”和“回起点不领奖”不触发落点事件。
@@ -1425,7 +1436,7 @@ function Rules({ s }) {
         “最近”按环形地图最短距离，同格为最近，并列随机。绑定／资助只复制目标下一次投掷及连带卡牌的全部金钱变化，不再次触发绑定链。皇帝代扣下一笔扣款。买卡支付30给系统，转移下一位其他玩家抽到的卡。
       </p>
       <p>
-        交换卡轮末按双方本轮投掷净收支结算（含扣款）；多张交换卡均以结算前净收支计算差额。单脚站立、笑出声、说话次数在轮末由主持人录入，结算后保存最终排名。误操作可撤销最近20步。
+        交换卡轮末按双方本回合投掷净收支结算（含扣款）；多张交换卡均以结算前净收支计算差额。单脚站立、笑出声、说话次数在轮末由主持人录入，结算后保存最终排名。误操作可撤销最近20步。
       </p>
       <h3>存档</h3>
       <p>

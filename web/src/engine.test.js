@@ -431,3 +431,5 @@ test('非法补录与损坏的未知字段标记被拒绝，不允许正常历�
 test('重开当前轮不丢失已补录的历史资金与专用撤销备份，重新游戏清空',()=>{
  const s=game(2);s.round=3;s.roundCheckpoint.round=2;s.snapshots=[{round:2,name:'原记录',players:s.players.map(p=>({id:p.id,name:p.name,color:p.color,cash:100,change:30,pos:4}))}];s.roundCheckpoint.snapshots=E.clone(s.snapshots);E.repairRoundCash(s,2,[{id:s.players[0].id,cash:222}]);E.restartRound(s);assert.equal(s.snapshots[0].players.find(p=>p.id===s.players[0].id).cash,222);assert(s.cashRepairUndo);assert.doesNotThrow(()=>E.validateSave(s));E.undoRoundCash(s);assert.equal(s.snapshots[0].players.find(p=>p.id===s.players[0].id).cash,100);E.restartGame(s);assert.equal(s.cashRepairUndo,undefined);assert.deepEqual(s.snapshots,[]);
 });
+
+test('提前结束保留当前余额、位置和未完成回合，不伪造完整回合',()=>{const s=E.fresh();E.addPlayer(s,'提前结束测试');E.addPlayer(s,'测试第二位');s.players[0].cash=321;s.players[0].pos=5;E.startRound(s);s.settling=true;s.roundJobs=[];const before=E.clone(s);E.endGameEarly(s);assert.equal(s.phase,'finished');assert(s.endedEarly);assert.deepEqual(s.players,before.players);assert.deepEqual(s.snapshots,before.snapshots);assert.deepEqual(E.validateSave(s).players,s.players);});

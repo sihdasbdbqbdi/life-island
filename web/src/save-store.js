@@ -4,9 +4,9 @@ export function unreadableGame(raw=null){return {state:E.fresh(),history:[],rev:
 export function readGame(storage){
  let raw=null;
  try{raw=storage.getItem(SAVE_KEY);if(!raw)return {state:E.fresh(),history:[],rev:0,storedRaw:null};
-  const data=JSON.parse(raw),state=E.validateSave(data),history=[];let skipped=0;
+  const data=unpackSave(JSON.parse(raw)),state=E.validateSave(data),history=[];let skipped=0;
   for(const h of (Array.isArray(data.history)?data.history:[]).slice(-20)){try{history.push(E.validateSave(h));}catch{skipped++;}}
-  return {state,history,rev:Number.isSafeInteger(data.rev)?data.rev:0,storedRaw:raw,warning:skipped?'当前进度已恢复；部分损坏的撤销记录已跳过，原始数据仍可导出。':undefined};
+  return {state,history,rev:Number.isSafeInteger(data.rev)?data.rev:0,storedRaw:raw,savedAt:data.savedAt,warning:skipped?'当前进度已恢复；部分损坏的撤销记录已跳过，原始数据仍可导出。':undefined};
  }catch{return unreadableGame(raw);}
 }
 // setItem is atomic: failed writes never remove or clear the previous valid save.
@@ -15,10 +15,23 @@ export function writeGame(storage,next,expectedRaw){
  if(current!==expectedRaw){const e=new Error('另一窗口已更新存档，已停止写入，避免覆盖。请先导出当前进度。');e.name='SaveConflictError';throw e;}
  const history=next.history.slice(-20);let lastError;
  for(let keep=history.length;keep>=0;keep--){
-  const envelope={state:next.state,history:keep?history.slice(-keep):[],rev:next.rev};
-  const raw=JSON.stringify(envelope);
+  const envelope={state:next.state,history:keep?history.slice(-keep):[],rev:next.rev,savedAt:next.savedAt};
+  const raw=packSave(envelope);
   try{storage.setItem(SAVE_KEY,raw);return {...envelope,storedRaw:raw,trimmed:keep<history.length};}
   catch(e){lastError=e;if(e.name!=='QuotaExceededError'&&e.code!==22&&e.code!==1014)throw e;}
  }
  throw lastError;
+}
+
+// A single image pool covers current state, checkpoint and undo history.
+export function packSave(envelope){
+ const images=[],indexes=new Map();
+ return JSON.stringify({format:'life-island-compact-v2',images,payload:JSON.parse(JSON.stringify(envelope,(key,value)=>{
+  if(key==='avatar'&&typeof value==='string'&&value.startsWith('data:image/')){if(!indexes.has(value)){indexes.set(value,images.length);images.push(value);}return {image:indexes.get(value)};}return value;
+ }))});
+}
+export function unpackSave(data){
+ if(data.format!=='life-island-compact-v2')return data;
+ if(!Array.isArray(data.images)||!data.payload)throw Error('图片资源损坏');
+ return JSON.parse(JSON.stringify(data.payload),(key,value)=>{if(key==='avatar'&&value&&typeof value==='object'){if(!Number.isInteger(value.image)||typeof data.images[value.image]!=='string')throw Error('头像引用损坏');return data.images[value.image];}return value;});
 }
